@@ -1,0 +1,6 @@
+## Interface: 30300
+## Title: SetupSwap Startup Helper
+## Notes: Early startup restoration for SetupSwap profile switches.
+## Author: SuttonX
+## Version: 1.0.0
+Loader.lua

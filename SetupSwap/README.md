@@ -1,6 +1,6 @@
 # SetupSwap
 
-![SetupSwap featured artwork](SetupSwap/docs/SetupSwap-featured.png)
+![SetupSwap featured artwork](docs/SetupSwap-featured.png)
 
 **Your addons, your layout, your keybindings—ready for the way you want to play.**
 

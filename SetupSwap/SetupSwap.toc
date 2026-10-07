@@ -1,0 +1,18 @@
+## Interface: 30300
+## Title: SetupSwap
+## Notes: Switch addon enable states with manual desktop, gamepad, and custom profiles.
+## Author: SuttonX
+## Version: 1.0.0
+## OptionalDeps: !SetupSwapLoader
+## SavedVariables: SetupSwapAccountDB
+## SavedVariablesPerCharacter: SetupSwapDB
+Core.lua
+NativeState.lua
+Bindings.lua
+Diagnostics.lua
+FrameLayouts.lua
+ChatLayouts.lua
+SettingsCatalog.lua
+Snapshots.lua
+UI.lua
+Minimap.lua
