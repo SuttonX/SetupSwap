@@ -4,7 +4,7 @@
 
 **Your addons, your layout, your keybindings—ready for the way you want to play.**
 
-SetupSwap saves reusable setups for **World of Warcraft: Wrath of the Lich King 3.3.5a**.  Each profile can remember which addons are enabled, their captured settings and positions, your chat layout, and your native WoW keybindings.  Switch from the settings window, a slash command, or the minimap button to bring that setup back.
+SetupSwap saves reusable setups for **World of Warcraft: Wrath of the Lich King 3.3.5a**.  Each profile can remember which addons are enabled, their captured settings and positions, your chat layout, and your native WoW keybindings, and the abilities assigned to your action bars.  Switch from the settings window, a slash command, or the minimap button to bring that setup back.
 
 Move from your desktop to handheld remote play on the couch.  Swap a questing interface for a focused raid layout.  Keep the same addon in several profiles with different settings and positions.  Set it up once, save it, and return to it when you need it - all without ever logging out of the game.
 
@@ -30,6 +30,7 @@ SetupSwap does not provide remote streaming or controller input itself.  It reme
 | Window layouts | Detected addon frame positions and supported layout settings |
 | Chat | Blizzard chat window configuration and positions |
 | Keybindings | Native WoW key assignments, restored when the profile is activated |
+| Action bars | Spells, items, existing macros, companions, equipment sets, and empty slots, saved separately for each character and talent spec |
 
 Settings capture discovers addon data automatically rather than requiring a hand-written integration for every addon.  It supports ordinary SavedVariables, recognized AceDB databases, and detected movable frames.  There is no artificial byte, entry, or nesting limit on capture; available game memory and serializable data still set practical limits.
 
@@ -50,14 +51,14 @@ The included startup helper allows settings to be restored early during profile 
 
 1. Open `/ss` or left-click the minimap button.
 2. Enter a profile name and choose its addons.  **Use current** populates addons currently enabled by the player, including enabled modules that are not loaded in memory.
-3. Click **Save profile**.  This saves **only the enabled/disabled addon list**.  It does not capture settings, positions, chat, or keybindings.
+3. Click **Save profile**.  This saves **only the enabled/disabled addon list**.  It does not capture settings, positions, chat, keybindings, or action bars.
 4. Click **Switch + Reload** to activate that profile.  A newly named profile also offers to enable its addons immediately.
 5. Arrange the UI and make any keybind changes.  Configure the addons and chat the way you want them.
-6. Reopen SetupSwap and click **Save settings & positions**.  This captures the setup, including keybindings, using a reload to flush addon settings.
+6. Reopen SetupSwap and click **Save settings & positions**.  This captures the setup, including keybindings and action-bar assignments, using a reload to flush addon settings.
 
 **Saving or selecting a profile in the editor does not activate it.  Switch to it before saving its settings.**
 
-Repeat for your other setups.  Save settings again after changing positions, addon configuration, chat, or bindings.  Existing profiles without a keybinding snapshot keep the current bindings until their settings are captured again.
+Repeat for your other setups.  Save settings again after changing positions, addon configuration, chat, bindings, or action-bar assignments.  Existing profiles without a keybinding snapshot keep the current bindings until their settings are captured again.
 
 ## Switch your way
 
@@ -81,7 +82,7 @@ If two profiles have identical addon selections, profile detection cannot automa
 
 ## Adding or removing addons
 
-After installing a new addon, update and save the addon list in each profile that should use it.  **Switch to that profile**, configure the addon, and then save settings again.  An addon missing from an older profile's list is disabled when that profile is activated.
+After installing a new addon, update and save the addon list in each profile that should use it.  **Switch to that profile**, configure the addon and ability placement, and then save settings again.  An addon missing from an older profile's list is disabled when that profile is activated.
 
 Deleted addons are ignored when matching the installed addon list.  SetupSwap does not install addons or recreate deleted addon folders.
 
@@ -106,9 +107,17 @@ For an issue report, include the SetupSwap version, affected addons, reproductio
 
 Addon settings capture includes selected addons that are loaded.  Open any desired load-on-demand modules before saving their settings.  Unsupported data, cyclic tables, and settings that cannot be discovered or serialized are reported rather than guaranteed to restore.  Ordinary SavedVariables may contain addon history or data as well as preferences.
 
-Keybindings use the client's current account/character binding choice.  Binding snapshots contain key assignments, not macro contents or action-bar spell placements.  Temporary controller override bindings remain managed by their owning addons.
+Keybindings use the client's current account/character binding choice.  Binding snapshots contain key assignments, not macro contents.  Action-bar assignments are captured separately; existing macros are matched by name, contents, and account/character scope, without creating or editing macros.  Temporary controller override bindings remain managed by their owning addons.
 
 SetupSwap is a setup manager, not a filesystem backup.  Keep a backup of your WTF folder with WoW closed before making major configuration changes.
+
+## Separate ability arrangements for desktop and gamepad
+
+Arrange your abilities for ElvUI or Blizzard bars in your desktop profile, then click **Save settings & positions**.  Switch to your gamepad profile, arrange abilities for ConsolePort, and save again.  Switching profiles restores the corresponding native action slots; the two interfaces do not need matching visible bars.
+
+Each profile keeps a separate action-bar snapshot for each character and talent spec.  Save each spec separately.  Older profiles and character/spec combinations without a saved snapshot leave your bars unchanged.  Save settings again to add action bars to an existing profile.
+
+Unavailable spells, missing items, deleted or edited macros, and unsupported actions leave their destination slots unchanged and are reported in `/ss log`.  Spell ranks are matched exactly.  Pet, vehicle, and possession controls are excluded.  Save outside combat and vehicles, with nothing on the cursor.  `/ss undo` includes the action-bar backup for the current character/spec.
 
 ## Related projects
 

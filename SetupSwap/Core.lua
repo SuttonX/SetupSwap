@@ -10,7 +10,7 @@ end
 -- A reload-backed operation owns its queued work until every restore finishes.
 function AM:OperationBusy()
     local db=self.db or {}
-    return db.pendingSettings or db.pendingBindings or db.pendingFrameLayouts
+    return db.pendingSettings or db.pendingBindings or db.pendingActionBars or db.pendingFrameLayouts
         or db.pendingChatLayout or self.followupReload or self.operationContext
 end
 function AM:CanStartOperation()
@@ -125,6 +125,12 @@ function AM:Switch(name)
     if not plan then self:Print(err..' Nothing changed.'); return false end
     self.db.pendingBindings=nil
     local targetProfile=self.db.profiles[name]
+    self.db.pendingActionBarBackup=nil
+    if targetProfile.captureSettings and self:SavedActionBars(targetProfile.settings) then
+        local ok,bars=pcall(self.CaptureActionBars,self)
+        if not ok then self:Print(tostring(bars)..'. Nothing changed.');return false end
+        self.db.pendingActionBarBackup=bars
+    end
     self.db.pendingBindingBackup=(targetProfile.captureSettings and targetProfile.settings and targetProfile.settings.bindings and self.CaptureBindings) and self:CaptureBindings() or nil
     local helperName,_,_,helperEnabled=GetAddOnInfo('!SetupSwapLoader')
     if helperName and helperEnabled~=nil and not on(helperEnabled) then EnableAddOn(helperName) end
@@ -270,7 +276,7 @@ function AM:Initialize()
     local reminder=self.db.setupReminder
     self.db.setupReminder=nil
     if reminder and reminder==self.db.active then
-        self:Print('Profile '..reminder..' is active. Arrange the UI and any keybind changes, reopen /ss, select '..reminder..', then click Save settings & positions. Settings, positions, chat, and keybindings have not been captured yet.')
+        self:Print('Profile '..reminder..' is active. Arrange the UI, abilities, and keybindings, reopen /ss, select '..reminder..', then click Save settings & positions. Settings, positions, chat, keybindings, and action bars have not been captured yet.')
     end
 end
 local frame=CreateFrame('Frame')

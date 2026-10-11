@@ -74,7 +74,7 @@ function AM:RequestSave()
     local isNew=requested and not self.db.profiles[requested]
     local name=self:SaveDraft()
     if name then
-        self:Print('Addon list saved. After addon or layout changes, activate '..name..', arrange the UI and any keybind changes, then Save settings & positions again.')
+        self:Print('Addon list saved. After addon or layout changes, activate '..name..', arrange the UI, abilities, and keybindings, then Save settings & positions again.')
         if isNew then StaticPopup_Show('SETUPSWAP_NEW_PROFILE',name,nil,name) end
     end
 end
@@ -96,9 +96,9 @@ function AM:RequestSettingsSave()
         local current=self:MatchingEnabledProfile()
         local prompt='The selected profile "'..name..'" or its edited addon list does not match the addons currently enabled in game.'
         if current then prompt=prompt..'\n\nCurrent matching profile: '..current..'.' end
-        prompt=prompt..'\n\nSave + Switch saves the shown addon list and activates it without capturing settings. After switching, arrange the UI and any keybind changes, then click Save settings & positions to capture them.'
+        prompt=prompt..'\n\nSave + Switch saves the shown addon list and activates it without capturing settings. After switching, arrange the UI, abilities, and keybindings, then click Save settings & positions to capture them.'
         if profile then
-            prompt=prompt..'\n\nOverwrite replaces "'..name..'" settings, positions, chat, and keybindings with the CURRENT in-game setup. Its saved addon list is kept; no profile switch occurs.'
+            prompt=prompt..'\n\nOverwrite replaces "'..name..'" settings, positions, chat, keybindings, and action bars with the CURRENT in-game setup. Its saved addon list is kept; no profile switch occurs.'
         else
             prompt=prompt..'\n\nSave this new profile first. Overwrite is available only for an existing saved profile.'
         end
@@ -262,7 +262,7 @@ function AM:BuildUI()
     local close=CreateFrame('Button',nil,f,'UIPanelCloseButton'); close:SetPoint('TOPRIGHT',-6,-6)
     label(f,'SetupSwap '..(GetAddOnMetadata(self.name,'Version') or '1.0.0'),22,-20,'GameFontNormalLarge')
     label(f,'1. Save profile ONLY saves enabled/disabled addons. Switch + Reload activates it.',22,-48,'GameFontHighlightSmall')
-    label(f,'2. Save AND switch first. Arrange UI and any keybind changes, then Save settings & positions.',22,-65,'GameFontHighlightSmall')
+    label(f,'2. Switch first. Arrange UI, abilities and keybindings, then Save settings & positions.',22,-65,'GameFontHighlightSmall')
     f.status=label(f,'',22,-86,'GameFontHighlightSmall')
     label(f,'Profile name (quick switch with /ss followed by this name):',22,-108,'GameFontHighlightSmall')
     f.profileName=edit(f,260,26,-130)
@@ -288,9 +288,10 @@ function AM:BuildUI()
     f.includeSettings:SetScript('OnClick',function(self) f.draft.captureSettings=self:GetChecked() and true or false end)
     f.includeSettings:SetScript('OnEnter',function(self)
         GameTooltip:SetOwner(self,'ANCHOR_RIGHT'); GameTooltip:SetText('Restore saved settings when switching')
-        GameTooltip:AddLine('Save profile stores the addon list only. Save settings & positions captures addon settings, positions, chat and current WoW keybindings. Unchecking this and saving removes this profile\'s settings snapshot.',1,1,1,true)
+        GameTooltip:AddLine('Save profile stores the addon list only. Save settings & positions captures addon settings, positions, chat, current WoW keybindings, and action-bar assignments. Unchecking this and saving removes this profile\'s settings snapshot.',1,1,1,true)
         GameTooltip:AddLine('After changing keybindings, save settings again for each active profile. Older profiles keep current bindings until captured.',1,1,1,true)
         GameTooltip:AddLine('Saving settings reloads once. Profile switches attempt one reload with the startup helper; a second reload is requested if early restoration is unavailable. /ss undo restores the last settings backup.',1,.82,0,true)
+        GameTooltip:AddLine('Action bars are saved separately for each character and talent spec. Missing or edited actions leave their slots unchanged; /ss log lists them.',1,1,1,true)
         local profile=AM.db.profiles[f.selected]
         local saved=profile and profile.settings
         if saved then
@@ -340,7 +341,7 @@ function AM:BuildUI()
     button(f,'Select all',95,142,-588,function() AM:SelectAll(true) end)
     button(f,'Deselect all',100,247,-588,function() AM:SelectAll(false) end)
     button(f,'Switch + Reload',155,487,-588,function() AM:RequestSwitch() end)
-    local guidance=label(f,'Save the profile, then switch to it. Saving alone does not activate it.\nSave settings includes positions, chat, and keybindings. Save only while that profile is active.',22,-618,'GameFontHighlightSmall')
+    local guidance=label(f,'Save the profile, then switch to it. Saving alone does not activate it.\nSave settings includes positions, chat, keybindings, and action bars. Save only while that profile is active.',22,-618,'GameFontHighlightSmall')
     guidance:SetWidth(610);guidance:SetJustifyH('LEFT')
     StaticPopupDialogs.SETUPSWAP_SAVE_AND_SWITCH={
         text='%s',button1='Save + Switch',button2='Cancel',hasEditBox=true,
@@ -351,7 +352,7 @@ function AM:BuildUI()
         EditBoxOnEscapePressed=function(self) self:GetParent():Hide() end,
     }
     StaticPopupDialogs.SETUPSWAP_NEW_PROFILE={
-        text='Profile "%s" saved: enabled/disabled addons only. Settings, positions and keybindings have not been captured.\n\nEnable its addons now so you can arrange the UI and any keybind changes?\n\nAfter reload, arrange that setup, reopen /ss and click Save settings & positions. This captures addon settings, positions, chat, and keybindings.',
+        text='Profile "%s" saved: enabled/disabled addons only. Settings, positions, keybindings, and action bars have not been captured.\n\nEnable its addons now so you can arrange the UI, abilities, and keybindings?\n\nAfter reload, arrange that setup, reopen /ss and click Save settings & positions. This captures addon settings, positions, chat, keybindings, and action bars.',
         button1='Enable + Reload',button2='Later',timeout=0,whileDead=true,hideOnEscape=true,
         OnAccept=function(self,data) AM:Switch(data or self.data) end,
     }
