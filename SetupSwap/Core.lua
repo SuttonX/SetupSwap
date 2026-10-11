@@ -10,7 +10,7 @@ end
 -- A reload-backed operation owns its queued work until every restore finishes.
 function AM:OperationBusy()
     local db=self.db or {}
-    return db.pendingSettings or db.pendingBindings or db.pendingActionBars or db.pendingFrameLayouts
+    return db.pendingSettings or db.pendingActionBars or db.pendingFrameLayouts
         or db.pendingChatLayout or self.followupReload or self.operationContext
 end
 function AM:CanStartOperation()
@@ -74,9 +74,49 @@ function AM:RenameProfile(oldName,newName)
     self:RegisterCommands()
     return name
 end
+function AM:CharacterKey()
+    return tostring(GetRealmName() or '')..'/'..tostring(UnitName('player') or '')
+end
+function AM:HasCharacterOverrides(profile)
+    return profile and type(profile.characterAddons)=='table' and type(profile.characterAddons[self:CharacterKey()])=='table' or false
+end
+function AM:AddonSelection(profile)
+    local result={}
+    for addon,value in pairs(profile and profile.addons or {}) do result[addon]=value==true end
+    local overrides=profile and profile.characterAddons and profile.characterAddons[self:CharacterKey()]
+    if type(overrides)=='table' then
+        for addon,value in pairs(overrides) do if type(value)=='boolean' then result[addon]=value end end
+    end
+    result[self.name]=true
+    return result
+end
+function AM:SaveAddonSelection(profile,selection,customize)
+    profile.addons=profile.addons or {}
+    if customize then
+        profile.characterAddons=profile.characterAddons or {}
+        local changes={}
+        for addon,value in pairs(selection) do
+            if addon~=self.name and (value==true)~=(profile.addons[addon]==true) then changes[addon]=value==true end
+        end
+        profile.characterAddons[self:CharacterKey()]=changes
+    else
+        profile.addons={}
+        for addon,value in pairs(selection) do profile.addons[addon]=value==true end
+        if profile.characterAddons then profile.characterAddons[self:CharacterKey()]=nil end
+    end
+    profile.addons[self.name]=true
+end
+function AM:RemoveLegacyBindings()
+    self.db.pendingBindings=nil;self.db.pendingBindingBackup=nil;self.db.lastBindingRestore=nil
+    if self.db.pendingSettings then self.db.pendingSettings.bindings=nil end
+    if self.db.settingsBackup then self.db.settingsBackup.bindings=nil end
+    for _,profile in pairs(self.db.profiles or {}) do
+        if type(profile)=='table' and type(profile.settings)=='table' then profile.settings.bindings=nil end
+    end
+end
 function AM:EffectiveState(profile, entry)
     if entry.name == self.name then return true end
-    local state = profile.addons[entry.name]
+    local state = self:AddonSelection(profile)[entry.name]
     -- A saved profile is a complete selection: absent addons are not selected.
     return state == true
 end
@@ -123,7 +163,6 @@ function AM:Switch(name)
     if InCombatLockdown() then self:Print('Leave combat, then run the command again. Nothing changed.'); return false end
     local plan, err = self:Plan(name)
     if not plan then self:Print(err..' Nothing changed.'); return false end
-    self.db.pendingBindings=nil
     local targetProfile=self.db.profiles[name]
     self.db.pendingActionBarBackup=nil
     if targetProfile.captureSettings and self:SavedActionBars(targetProfile.settings) then
@@ -131,7 +170,6 @@ function AM:Switch(name)
         if not ok then self:Print(tostring(bars)..'. Nothing changed.');return false end
         self.db.pendingActionBarBackup=bars
     end
-    self.db.pendingBindingBackup=(targetProfile.captureSettings and targetProfile.settings and targetProfile.settings.bindings and self.CaptureBindings) and self:CaptureBindings() or nil
     local helperName,_,_,helperEnabled=GetAddOnInfo('!SetupSwapLoader')
     if helperName and helperEnabled~=nil and not on(helperEnabled) then EnableAddOn(helperName) end
     if self.PrepareNativeState then self:PrepareNativeState(self.db.profiles[name]) end
@@ -153,7 +191,7 @@ function AM:SaveCurrent(name)
         local result, err = self:CreateProfile(name)
         if not result then self:Print(err); return false end
     end
-    self.db.profiles[name].addons = self:Snapshot()
+    self:SaveAddonSelection(self.db.profiles[name],self:Snapshot(),self:HasCharacterOverrides(self.db.profiles[name]))
     self:Print('Captured current addon enable states in '..name..'.')
     return true
 end
@@ -267,6 +305,7 @@ function AM:Initialize()
         profile.addons[self.name]=true
         end
     end
+    self:RemoveLegacyBindings()
     SLASH_SETUPSWAP1='/setupswap'
     SlashCmdList.SETUPSWAP=function(message) AM:HandleCommand(message) end
     if self:CommandAvailable('ss') then SLASH_SETUPSWAP2='/ss' end
@@ -276,7 +315,7 @@ function AM:Initialize()
     local reminder=self.db.setupReminder
     self.db.setupReminder=nil
     if reminder and reminder==self.db.active then
-        self:Print('Profile '..reminder..' is active. Arrange the UI, abilities, and keybindings, reopen /ss, select '..reminder..', then click Save settings & positions. Settings, positions, chat, keybindings, and action bars have not been captured yet.')
+        self:Print('Profile '..reminder..' is active. Arrange the UI and abilities, reopen /ss, select '..reminder..', then click Save settings & positions. Settings, positions, chat, and action bars have not been captured yet.')
     end
 end
 local frame=CreateFrame('Frame')

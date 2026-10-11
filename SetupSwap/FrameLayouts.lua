@@ -28,7 +28,7 @@ end
 local function owner(name,profile)
     local normalized=name:lower():gsub('[^%w]','')
     local found,length
-    for addon,enabled in pairs(profile.addons or {}) do
+    for addon,enabled in pairs(AM:AddonSelection(profile)) do
         if enabled and IsAddOnLoaded(addon) and addon~=AM.name then
             local base=addon:lower():gsub('[-_]%d[%d%.]*$','')
             base=base:gsub('[^%w]','')
@@ -59,7 +59,7 @@ function AM:CaptureFrameLayouts(profile)
         end
     end
     for addon,names in pairs(windows) do
-        if profile.addons[addon]==true and IsAddOnLoaded(addon) then
+        if self:EffectiveState(profile,{name=addon}) and IsAddOnLoaded(addon) then
             for _,name in ipairs(names) do capture(_G[name],name,addon,false) end
         end
     end
@@ -91,7 +91,7 @@ function AM:ApplyFrameLayouts(layouts,profile)
         if item.generic and not excluded(item.name) and writable(candidate)
             and layoutCandidate(candidate) then allowed=true end
         local frame=allowed and candidate
-        if frame and (item.addon=='__ui' or ((not profile or profile.addons[item.addon]==true) and IsAddOnLoaded(item.addon)))
+        if frame and (item.addon=='__ui' or ((not profile or self:EffectiveState(profile,{name=item.addon})) and IsAddOnLoaded(item.addon)))
             and not (frame.IsProtected and frame:IsProtected()) and type(item.x)=='number' and type(item.y)=='number' then
             frame:ClearAllPoints()
             local ratio=1

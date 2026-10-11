@@ -135,4 +135,89 @@ check(AM.db.pendingActionBars~=nil,'Fallback settings restore also stages action
 runner.scripts.OnEvent(runner);AM.followupReload=true;runner.scripts.OnUpdate(runner,2)
 check(AM.db.pendingActionBars~=nil,'Action bars wait for required fallback reload')
 AM.followupReload=nil;AM.db.pendingActionBars=nil
+-- Character addon selection and removed binding behavior.
+local inventory={
+    {name='SetupSwap',enabled=true,dependencies={}},
+    {name='HealBot',enabled=false,dependencies={'Library'}},
+    {name='Library',enabled=false,dependencies={}},
+    {name='Questie',enabled=true,dependencies={}},
+}
+function AM:Inventory()
+    local byName={};for _,e in ipairs(inventory) do byName[e.name]=e end
+    return inventory,byName
+end
+AM.db={profiles={desktop={addons={SetupSwap=true,HealBot=false,Library=false,Questie=true}},gamepad={addons={SetupSwap=true,HealBot=false,Library=false,Questie=false}}}}
+local desktop=AM.db.profiles.desktop
+char='Druid'
+AM:SaveAddonSelection(desktop,{SetupSwap=true,HealBot=true,Library=true,Questie=true},true)
+check(desktop.addons.HealBot==false and desktop.characterAddons['TestRealm/Druid'].HealBot==true,'Healer override preserves shared selection')
+check(desktop.characterAddons['TestRealm/Druid'].Questie==nil,'Only changed addon choices stored')
+check(AM:Plan('desktop').target.HealBot and AM:Plan('desktop').target.Library,'Switch plan uses healer overrides and dependencies')
+group=2;check(AM:Plan('desktop').target.HealBot,'Character addon choices apply to both talent specs');group=1
+char='Mage';check(not AM:Plan('desktop').target.HealBot,'Mage inherits shared selection without healer addon')
+local realm='OtherRealm';GetRealmName=function() return realm end
+char='Druid';check(not AM:Plan('desktop').target.HealBot,'Same character name on another realm is isolated')
+GetRealmName=function() return 'TestRealm' end;char='Mage'
+AM:SaveAddonSelection(desktop,{SetupSwap=true,HealBot=false,Library=false,Questie=false},false)
+char='Druid'
+check(AM:Plan('desktop').target.HealBot and not AM:Plan('desktop').target.Questie,'Shared edits propagate without replacing healer overrides')
+AM:SaveAddonSelection(AM.db.profiles.gamepad,{SetupSwap=true,HealBot=false,Library=false,Questie=true},true)
+check(AM:Plan('desktop').target.HealBot and not AM:Plan('gamepad').target.HealBot,'Overrides are independent for each profile')
+AM:SaveAddonSelection(desktop,desktop.addons,false)
+check(not AM:HasCharacterOverrides(desktop) and not AM:Plan('desktop').target.HealBot,'Reset removes only current character overrides')
+-- UI load, save and Save + Switch keep the chosen scope.
+dofile('SetupSwap/UI.lua')
+function AM:RefreshUI() end
+local name='desktop'
+AM.ui={selected=name,profileName={GetText=function() return name end,SetText=function(_,v) name=v end}}
+AM:LoadDraft();AM.ui.draft.customize=true
+AM:SetSelection('desktop','HealBot',true,AM.ui.draft)
+check(AM.ui.draft.addons.Library,'Checkbox selection includes dependencies')
+AM:SaveDraft()
+check(AM:HasCharacterOverrides(desktop) and desktop.addons.HealBot==false,'Editor Save overrides preserves shared addon list')
+AM:LoadDraft()
+check(AM.ui.draft.customize and AM.ui.draft.addons.HealBot and not AM:DraftDiffers('desktop'),'Editor reopens matching saved character scope')
+char='Mage';AM:LoadDraft()
+check(not AM.ui.draft.customize and not AM.ui.draft.addons.HealBot,'Mage editor opens shared scope')
+inventory[2].enabled=false;inventory[3].enabled=false;inventory[4].enabled=false
+check(AM:ProfileMatchesEnabled('desktop'),'Profile detection uses mage shared selection')
+char='Druid';check(not AM:ProfileMatchesEnabled('desktop'),'Profile detection respects character override')
+local switched
+local switch=AM.Switch;AM.Switch=function(_,v) switched=v;return true end
+AM:ConfirmSwitch({addons={SetupSwap=true,HealBot=true,Library=true,Questie=false},customize=true,captureSettings=false},'desktop')
+check(switched=='desktop' and AM:HasCharacterOverrides(desktop) and desktop.addons.HealBot==false,'Save + Switch retains character scope')
+AM.Switch=switch
+-- Calls to native binding APIs would fail the test immediately.
+SetBinding=function() error('Native bindings must not be written') end
+SaveBindings=function() error('Native bindings must not be saved') end
+GetBinding=function() error('Native bindings must not be captured') end
+desktop.settings={bindings={version=1,keys={Q='STRAFELEFT'}},variables={}}
+AM.db.pendingBindings={value=desktop.settings.bindings};AM.db.pendingBindingBackup={keys={}}
+AM.db.lastBindingRestore={};AM.db.settingsBackup={bindings={keys={}}}
+AM:RemoveLegacyBindings()
+check(not desktop.settings.bindings and not AM.db.pendingBindings and not AM.db.settingsBackup.bindings,'Legacy binding snapshots and queued restores discarded without API calls')
+check(not AM.CaptureBindings and not AM.ApplyBindings and not AM.StageBindings,'Keybinding feature absent')
+AM:ApplySettings({variables={},bindings={version=1,keys={Q='STRAFELEFT'}}},true,'desktop')
+check(not AM.db.settingsBackup.bindings,'Old binding snapshots ignored by settings apply and backup')
+AM:BeginSettingsCapture('desktop',false)
+check(not AM.db.pendingSettings.bindings,'Settings capture no longer reads keybindings')
+AM.db.pendingSettings=nil
+GetAddOnMetadata=function(_,key)
+    if key=='SavedVariablesPerCharacter' then return 'ConsolePortBindingSet ConsolePortLoaderBinding ConsolePortMouse' end
+end
+local declarations=AM:SettingsDeclarations('ConsolePort')
+local foundMouse=false
+for _,e in ipairs(declarations) do
+    assert(e.name~='ConsolePortBindingSet' and e.name~='ConsolePortLoaderBinding')
+    if e.name=='ConsolePortMouse' then foundMouse=true end
+end
+check(foundMouse,'ConsolePort binding variables excluded even when declared by installed TOC')
+inventory[#inventory+1]={name='ConsolePort',enabled=true,dependencies={}}
+IsAddOnLoaded=function() return true end
+ConsolePortBindingSet={original=true};ConsolePortLoaderBinding={original=true}
+AM:ApplySettings({variables={
+    {addon='ConsolePort',name='ConsolePortBindingSet',scope='SavedVariablesPerCharacter',value={changed=true}},
+    {addon='ConsolePort',name='ConsolePortLoaderBinding',scope='SavedVariablesPerCharacter',value={changed=true}},
+}},false,'desktop')
+check(ConsolePortBindingSet.original and ConsolePortLoaderBinding.original,'Older ConsolePort binding snapshots cannot overwrite live binding variables')
 print(checks..' checks passed')

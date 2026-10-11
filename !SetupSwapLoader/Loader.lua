@@ -1,7 +1,7 @@
 -- No SavedVariables here: the existing SetupSwap account database stays in its
 -- original file. Register before addon login handlers, then use the fully loaded
 -- SetupSwap implementation at PLAYER_LOGIN. Never restore on an ordinary login.
-SetupSwapEarlyLoader = {alreadyLoaded={},saveBindings=SaveBindings}
+SetupSwapEarlyLoader = {alreadyLoaded={}}
 local loader=SetupSwapEarlyLoader
 for i=1,GetNumAddOns() do
     local name=GetAddOnInfo(i)

@@ -1,3 +1,5 @@
+> Historical audit of the initial release. The current build removes native keybinding capture/restoration; use the current README and CHARACTER-ADDONS.md for its behavior.
+
 # SetupSwap pre-release audit — October 6, 2026
 
 Reviewed all 11 Lua modules and both TOCs in the supplied 1.0.0 package.

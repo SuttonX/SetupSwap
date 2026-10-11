@@ -22,8 +22,6 @@ function AM:DiagnosticsText()
     local chat=self.db and self.db.lastChatRestore
     if windows then line('Last window restore: '..tostring(windows.name)..'; applied='..tostring(windows.count)) end
     if chat then line('Last chat restore: '..(chat.ok and 'completed' or tostring(chat.error))) end
-    local bindings=self.db and self.db.lastBindingRestore
-    if bindings then line('Last keybindings restore: '..tostring(bindings.name)..'; '..(bindings.ok and ('keys='..tostring(bindings.count)..'; binding set='..tostring(bindings.bindingSet)) or tostring(bindings.error))) end
     local actions=self.db and self.db.lastActionBarRestore
     if actions then
         line('Last action-bar restore: '..tostring(actions.name)..'; '..(actions.ok and ('changed slots='..tostring(actions.count)) or tostring(actions.error)))
@@ -36,8 +34,7 @@ function AM:DiagnosticsText()
     for _,name in ipairs(names) do
         local profile=self.db.profiles[name]
         local snapshot=profile.settings or {}
-        local keyCount=0;for _ in pairs(snapshot.bindings and snapshot.bindings.keys or {}) do keyCount=keyCount+1 end
-        line('  Keybindings: '..(snapshot.bindings and tostring(keyCount) or 'not captured'))
+        line(name..': addon selection='..(self:HasCharacterOverrides(profile) and ('character overrides ('..self:CharacterKey()..')') or 'shared'))
         line('  Action bars for current character/spec: '..(self:SavedActionBars(snapshot) and 'captured' or 'not captured'))
         line(name..': restore='..tostring(profile.captureSettings)..'; addon windows='..#(snapshot.layouts or {})..'; chat windows='..#(snapshot.chat and snapshot.chat.windows or {}))
         for _,layout in ipairs(snapshot.layouts or {}) do

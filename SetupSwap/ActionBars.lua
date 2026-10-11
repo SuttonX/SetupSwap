@@ -177,7 +177,7 @@ local function update(frame,delta)
         AM.db.pendingActionBars=nil;frame:SetScript('OnUpdate',nil)
         AM:Print('Action-bar restore canceled: character or talent spec changed.');return
     end
-    if InCombatLockdown() or temporaryBar() or GetCursorInfo() or AM.db.pendingSettings or AM.followupReload or AM.db.pendingBindings then return end
+    if InCombatLockdown() or temporaryBar() or GetCursorInfo() or AM.db.pendingSettings or AM.followupReload then return end
     frame.elapsed=(frame.elapsed or 0)+delta
     if frame.elapsed<1 then return end
     AM.db.pendingActionBars=nil;frame:SetScript('OnUpdate',nil)

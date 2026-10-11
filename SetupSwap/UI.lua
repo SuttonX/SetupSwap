@@ -40,6 +40,7 @@ end
 function AM:LoadDraft()
     local f=self.ui; local stored=self.db.profiles[f.selected]
     f.draft={addons={}}
+    f.draft.customize=self:HasCharacterOverrides(stored)
     if stored then
         for name,value in pairs(stored.addons) do f.draft.addons[name]=value end
         for _,entry in ipairs(self:Inventory()) do
@@ -60,7 +61,9 @@ function AM:SaveDraft()
     if not f.draft then return nil end
     local stored=self.db.profiles[name] or {}
     local copy={}; for addon,value in pairs(f.draft.addons) do copy[addon]=value end
-    copy[self.name]=true; stored.addons=copy
+    copy[self.name]=true
+    if not self.db.profiles[name] then stored.addons=self:Snapshot() end
+    self:SaveAddonSelection(stored,copy,f.draft.customize)
     stored.captureSettings=f.draft.captureSettings==true
     if not stored.captureSettings then stored.settings=nil end
     self.db.profiles[name]=stored; f.selected=name; f.draftName=name
@@ -74,13 +77,12 @@ function AM:RequestSave()
     local isNew=requested and not self.db.profiles[requested]
     local name=self:SaveDraft()
     if name then
-        self:Print('Addon list saved. After addon or layout changes, activate '..name..', arrange the UI, abilities, and keybindings, then Save settings & positions again.')
+        self:Print('Addon list saved. After addon or layout changes, activate '..name..', arrange the UI and abilities, then Save settings & positions again.')
         if isNew then StaticPopup_Show('SETUPSWAP_NEW_PROFILE',name,nil,name) end
     end
 end
 function AM:RequestSettingsSave()
     if not self:CanStartOperation() then return false end
-    if self.db.pendingBindings then self:Print('Wait for keybindings restoration to finish before saving settings.'); return false end
     if InCombatLockdown() then self:Print('Leave combat before saving settings.'); return false end
     local name,err=self:ValidName(self.ui.profileName:GetText())
     if not name then self:Print(err); return false end
@@ -96,13 +98,13 @@ function AM:RequestSettingsSave()
         local current=self:MatchingEnabledProfile()
         local prompt='The selected profile "'..name..'" or its edited addon list does not match the addons currently enabled in game.'
         if current then prompt=prompt..'\n\nCurrent matching profile: '..current..'.' end
-        prompt=prompt..'\n\nSave + Switch saves the shown addon list and activates it without capturing settings. After switching, arrange the UI, abilities, and keybindings, then click Save settings & positions to capture them.'
+        prompt=prompt..'\n\nSave + Switch saves the shown addon list and activates it without capturing settings. After switching, arrange the UI and abilities, then click Save settings & positions to capture them.'
         if profile then
-            prompt=prompt..'\n\nOverwrite replaces "'..name..'" settings, positions, chat, keybindings, and action bars with the CURRENT in-game setup. Its saved addon list is kept; no profile switch occurs.'
+            prompt=prompt..'\n\nOverwrite replaces "'..name..'" settings, positions, chat, and action bars with the CURRENT in-game setup. Its saved addon list is kept; no profile switch occurs.'
         else
             prompt=prompt..'\n\nSave this new profile first. Overwrite is available only for an existing saved profile.'
         end
-        local dialog=StaticPopup_Show('SETUPSWAP_SETTINGS_MISMATCH',prompt,nil,{name=name,addons=addons,captureSettings=self.ui.draft.captureSettings==true})
+        local dialog=StaticPopup_Show('SETUPSWAP_SETTINGS_MISMATCH',prompt,nil,{name=name,addons=addons,captureSettings=self.ui.draft.captureSettings==true,customize=self.ui.draft.customize==true})
         if dialog then dialog:ClearAllPoints();dialog:SetPoint('CENTER',UIParent,'CENTER',0,UIParent:GetHeight()*.18) end
         return false
     end
@@ -113,7 +115,6 @@ function AM:RequestSettingsSave()
 end
 function AM:ConfirmSettingsOverwrite(data)
     if not self:CanStartOperation() then return false end
-    if self.db.pendingBindings then self:Print('Wait for keybindings restoration to finish before saving settings.'); return false end
     if InCombatLockdown() then self:Print('Leave combat before saving settings.'); return false end
     local name=data and self:ValidName(data.name)
     local profile=name and self.db.profiles[name]
@@ -127,6 +128,7 @@ end
 function AM:DraftDiffers(name)
     local stored=self.db.profiles[name]
     if not stored then return true end
+    if self:HasCharacterOverrides(stored)~=(self.ui.draft.customize==true) then return true end
     if (stored.captureSettings==true)~=(self.ui.draft.captureSettings==true) then return true end
     for _,entry in ipairs(self:Inventory()) do
         if self:EffectiveState(stored,entry)~=self:EffectiveState(self.ui.draft,entry) then return true end
@@ -144,7 +146,7 @@ function AM:RequestSwitch()
     local addons={}; for addon,value in pairs(f.draft.addons) do addons[addon]=value end
     local prompt=name and self.db.profiles[name] and ('Save changes to "'..name..'" before switching?')
         or 'Save this selection as a profile before switching. Enter a profile name:'
-    StaticPopup_Show('SETUPSWAP_SAVE_AND_SWITCH',prompt,nil,{name=name or '',addons=addons,captureSettings=f.draft.captureSettings==true})
+    StaticPopup_Show('SETUPSWAP_SAVE_AND_SWITCH',prompt,nil,{name=name or '',addons=addons,captureSettings=f.draft.captureSettings==true,customize=f.draft.customize==true})
     return false
 end
 function AM:ConfirmSwitch(data, text)
@@ -153,7 +155,7 @@ function AM:ConfirmSwitch(data, text)
     local name,err=self:ValidName(text)
     if not name then self:Print(err); return false end
     self.ui.profileName:SetText(name)
-    self.ui.draft={addons=data.addons,captureSettings=data.captureSettings==true}
+    self.ui.draft={addons=data.addons,captureSettings=data.captureSettings==true,customize=data.customize==true}
     local saved=self:SaveDraft()
     return saved and self:Switch(saved) or false
 end
@@ -188,8 +190,7 @@ end
 function AM:CreateFromEditor(name)
     local created,err=self:CreateProfile(name)
     if not created then return nil,err end
-    for addon,value in pairs(self.ui.draft.addons) do self.db.profiles[created].addons[addon]=value end
-    self.db.profiles[created].addons[self.name]=true
+    self:SaveAddonSelection(self.db.profiles[created],self.ui.draft.addons,self.ui.draft.customize)
     self.ui.selected=created; self.ui.draftName=nil
     self:RefreshUI()
     return created
@@ -198,6 +199,9 @@ function AM:RefreshUI()
     local f=self.ui; if not f then return end
     if not f.draft then self:LoadDraft() end
     f.status:SetText('Last applied: '..(self.db.active or 'none')..'  |  Saved profiles: '..table.concat(self:ProfileNames(),', '))
+    if f.characterOnly then f.characterOnly:SetChecked(f.draft.customize==true) end
+    if f.scope then f.scope:SetText(f.draft.customize and ('Character overrides: '..self:CharacterKey()) or 'Shared addon selection') end
+    if f.saveProfile then f.saveProfile:SetText(f.draft.customize and 'Save overrides' or 'Save shared') end
     if f.includeSettings then f.includeSettings:SetChecked(f.draft.captureSettings==true) end
     self:RefreshRows()
 end
@@ -232,7 +236,7 @@ function AM:RefreshRows()
             local shade=row.blocked and .45 or 1
             row.title:SetTextColor(shade,shade,shade)
             row.check:SetAlpha(shade)
-            row.folder:SetText(entry.name..(IsAddOnLoadOnDemand(entry.name) and ' (on demand)' or ''))
+            row.folder:SetText(entry.name..(f.draft.customize and AM.db.profiles[f.selected] and ((f.draft.addons[entry.name]==true)~=(AM.db.profiles[f.selected].addons[entry.name]==true)) and ' [override]' or '')..(IsAddOnLoadOnDemand(entry.name) and ' (on demand)' or ''))
             if entry.name==self.name then
                 row.check:Disable(); row.folder:SetText(entry.name..' (always on; protected)')
             else row.check:Enable() end
@@ -253,7 +257,7 @@ end
 function AM:BuildUI()
     local f=CreateFrame('Frame','SetupSwapWindow',UIParent)
     self.ui=f; f.selected=nil;f:Hide()
-    f:SetSize(690,658); f:SetPoint('CENTER'); f:SetFrameStrata('DIALOG')
+    f:SetSize(690,712); f:SetPoint('CENTER'); f:SetFrameStrata('DIALOG')
     f:SetBackdrop({bgFile='Interface\\DialogFrame\\UI-DialogBox-Background',edgeFile='Interface\\DialogFrame\\UI-DialogBox-Border',tile=true,tileSize=32,edgeSize=32,insets={left=11,right=12,top=12,bottom=11}})
     f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag('LeftButton')
     f:SetScript('OnDragStart',function(self) self:StartMoving() end)
@@ -261,8 +265,8 @@ function AM:BuildUI()
     tinsert(UISpecialFrames,'SetupSwapWindow')
     local close=CreateFrame('Button',nil,f,'UIPanelCloseButton'); close:SetPoint('TOPRIGHT',-6,-6)
     label(f,'SetupSwap '..(GetAddOnMetadata(self.name,'Version') or '1.0.0'),22,-20,'GameFontNormalLarge')
-    label(f,'1. Save profile ONLY saves enabled/disabled addons. Switch + Reload activates it.',22,-48,'GameFontHighlightSmall')
-    label(f,'2. Switch first. Arrange UI, abilities and keybindings, then Save settings & positions.',22,-65,'GameFontHighlightSmall')
+    label(f,'1. Save shared / Save overrides saves only addon choices. Switch + Reload activates them.',22,-48,'GameFontHighlightSmall')
+    label(f,'2. Switch first. Arrange UI and abilities, then Save settings & positions.',22,-65,'GameFontHighlightSmall')
     f.status=label(f,'',22,-86,'GameFontHighlightSmall')
     label(f,'Profile name (quick switch with /ss followed by this name):',22,-108,'GameFontHighlightSmall')
     f.profileName=edit(f,260,26,-130)
@@ -272,7 +276,7 @@ function AM:BuildUI()
     f.profileName:SetScript('OnTextChanged',function(self)
         if self:GetText()=='' then placeholder:Show() else placeholder:Hide() end
     end)
-    button(f,'Save profile',125,300,-130,function() AM:RequestSave() end)
+    f.saveProfile=button(f,'Save profile',125,300,-130,function() AM:RequestSave() end)
     button(f,'Select profile',145,430,-130,function(self) AM:ShowProfileMenu(self) end)
     button(f,'Delete',85,580,-130,function()
         local name=AM:ValidName(f.profileName:GetText())
@@ -288,8 +292,7 @@ function AM:BuildUI()
     f.includeSettings:SetScript('OnClick',function(self) f.draft.captureSettings=self:GetChecked() and true or false end)
     f.includeSettings:SetScript('OnEnter',function(self)
         GameTooltip:SetOwner(self,'ANCHOR_RIGHT'); GameTooltip:SetText('Restore saved settings when switching')
-        GameTooltip:AddLine('Save profile stores the addon list only. Save settings & positions captures addon settings, positions, chat, current WoW keybindings, and action-bar assignments. Unchecking this and saving removes this profile\'s settings snapshot.',1,1,1,true)
-        GameTooltip:AddLine('After changing keybindings, save settings again for each active profile. Older profiles keep current bindings until captured.',1,1,1,true)
+        GameTooltip:AddLine('Save profile stores the addon list only. Save settings & positions captures addon settings, positions, chat, and action-bar assignments. Unchecking this and saving removes this profile\'s settings snapshot.',1,1,1,true)
         GameTooltip:AddLine('Saving settings reloads once. Profile switches attempt one reload with the startup helper; a second reload is requested if early restoration is unavailable. /ss undo restores the last settings backup.',1,.82,0,true)
         GameTooltip:AddLine('Action bars are saved separately for each character and talent spec. Missing or edited actions leave their slots unchanged; /ss log lists them.',1,1,1,true)
         local profile=AM.db.profiles[f.selected]
@@ -308,14 +311,35 @@ function AM:BuildUI()
         GameTooltip:Show()
     end)
     f.includeSettings:SetScript('OnLeave',function() GameTooltip:Hide() end)
-    label(f,'Checked = enabled. Gray = blocked by a requirement.',22,-262,'GameFontHighlightSmall')
-    button(f,'Save settings & positions',205,435,-248,function() AM:RequestSettingsSave() end)
+    f.characterOnly=CreateFrame('CheckButton',nil,f,'UICheckButtonTemplate')
+    f.characterOnly:SetSize(24,24);f.characterOnly:SetPoint('TOPLEFT',22,-262)
+    label(f,'Customize addons for this specific character',52,-268,'GameFontHighlightSmall')
+    f.scope=label(f,'',52,-289,'GameFontHighlightSmall')
+    f.characterOnly:SetScript('OnClick',function(self)
+        local enabled=self:GetChecked() and true or false
+        local stored=AM.db.profiles[f.selected]
+        if not enabled then
+            f.draft.addons={}
+            for addon,value in pairs(stored and stored.addons or AM:Snapshot()) do f.draft.addons[addon]=value end
+            f.draft.addons[AM.name]=true
+        end
+        f.draft.customize=enabled;AM:RefreshUI()
+    end)
+    f.characterOnly:SetScript('OnEnter',function(self)
+        GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:SetText('Customize addons for this specific character')
+        GameTooltip:AddLine('Save only this character\'s addon differences for this profile. Other characters keep the shared selection. Shared changes still apply to addons you have not overridden.',1,1,1,true)
+        GameTooltip:AddLine('Uncheck and save to remove this character\'s overrides. Addon settings, positions and chat remain shared; abilities are separate by character and talent spec. SetupSwap does not save or restore WoW keybindings.',1,1,1,true)
+        GameTooltip:Show()
+    end)
+    f.characterOnly:SetScript('OnLeave',function() GameTooltip:Hide() end)
+    label(f,'Checked = enabled. Gray = blocked by a requirement.',22,-316,'GameFontHighlightSmall')
+    button(f,'Save settings & positions',205,435,-302,function() AM:RequestSettingsSave() end)
     f.scroll=CreateFrame('ScrollFrame','SetupSwapAddonScroll',f,'FauxScrollFrameTemplate')
-    f.scroll:SetPoint('TOPLEFT',22,-284); f.scroll:SetSize(622,286)
+    f.scroll:SetPoint('TOPLEFT',22,-338); f.scroll:SetSize(622,286)
     f.scroll:SetScript('OnVerticalScroll',function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,26,function() AM:RefreshRows() end) end)
     f.rows={}
     for i=1,11 do
-        local row=CreateFrame('Frame',nil,f); row:SetPoint('TOPLEFT',22,-284-(i-1)*26); row:SetSize(615,26)
+        local row=CreateFrame('Frame',nil,f); row:SetPoint('TOPLEFT',22,-338-(i-1)*26); row:SetSize(615,26)
         row.check=CreateFrame('CheckButton',nil,row,'UICheckButtonTemplate'); row.check:SetSize(24,24); row.check:SetPoint('LEFT',0,0)
         row.title=row:CreateFontString(nil,'OVERLAY','GameFontHighlightSmall'); row.title:SetPoint('LEFT',30,0); row.title:SetWidth(290); row.title:SetJustifyH('LEFT')
         row.folder=row:CreateFontString(nil,'OVERLAY','GameFontDisableSmall'); row.folder:SetPoint('LEFT',325,0); row.folder:SetWidth(280); row.folder:SetJustifyH('LEFT')
@@ -337,11 +361,11 @@ function AM:BuildUI()
         row:SetScript('OnLeave',function() GameTooltip:Hide() end)
         f.rows[i]=row
     end
-    button(f,'Use current',110,22,-588,function() f.draft.addons=AM:LoadedSnapshot(); AM:RefreshRows() end)
-    button(f,'Select all',95,142,-588,function() AM:SelectAll(true) end)
-    button(f,'Deselect all',100,247,-588,function() AM:SelectAll(false) end)
-    button(f,'Switch + Reload',155,487,-588,function() AM:RequestSwitch() end)
-    local guidance=label(f,'Save the profile, then switch to it. Saving alone does not activate it.\nSave settings includes positions, chat, keybindings, and action bars. Save only while that profile is active.',22,-618,'GameFontHighlightSmall')
+    button(f,'Use current',110,22,-642,function() f.draft.addons=AM:LoadedSnapshot(); AM:RefreshRows() end)
+    button(f,'Select all',95,142,-642,function() AM:SelectAll(true) end)
+    button(f,'Deselect all',100,247,-642,function() AM:SelectAll(false) end)
+    button(f,'Switch + Reload',155,487,-642,function() AM:RequestSwitch() end)
+    local guidance=label(f,'Save the profile, then switch to it. Saving alone does not activate it.\nSave settings includes positions, chat, and action bars. Save only while that profile is active.',22,-672,'GameFontHighlightSmall')
     guidance:SetWidth(610);guidance:SetJustifyH('LEFT')
     StaticPopupDialogs.SETUPSWAP_SAVE_AND_SWITCH={
         text='%s',button1='Save + Switch',button2='Cancel',hasEditBox=true,
@@ -352,7 +376,7 @@ function AM:BuildUI()
         EditBoxOnEscapePressed=function(self) self:GetParent():Hide() end,
     }
     StaticPopupDialogs.SETUPSWAP_NEW_PROFILE={
-        text='Profile "%s" saved: enabled/disabled addons only. Settings, positions, keybindings, and action bars have not been captured.\n\nEnable its addons now so you can arrange the UI, abilities, and keybindings?\n\nAfter reload, arrange that setup, reopen /ss and click Save settings & positions. This captures addon settings, positions, chat, keybindings, and action bars.',
+        text='Profile "%s" saved: enabled/disabled addons only. Settings, positions and action bars have not been captured.\n\nEnable its addons now so you can arrange the UI and abilities?\n\nAfter reload, arrange that setup, reopen /ss and click Save settings & positions. This captures addon settings, positions, chat, and action bars.',
         button1='Enable + Reload',button2='Later',timeout=0,whileDead=true,hideOnEscape=true,
         OnAccept=function(self,data) AM:Switch(data or self.data) end,
     }
@@ -372,7 +396,7 @@ function AM:BuildUI()
         end,
     }
     StaticPopupDialogs.SETUPSWAP_DELETE_PROFILE={
-        text='Delete SetupSwap profile "%s"?',button1='Delete',button2='Cancel',timeout=0,whileDead=true,hideOnEscape=true,
+        text='Delete SetupSwap profile "%s" and its overrides for every character?',button1='Delete',button2='Cancel',timeout=0,whileDead=true,hideOnEscape=true,
         OnAccept=function(self,data)
             local name=data or self.data
             local ok,err=AM:DeleteProfile(name); if not ok then AM:Print(err) end

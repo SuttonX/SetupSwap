@@ -44,8 +44,9 @@ function AM:CopySettings(value,budget)
 end
 function AM:SettingsDeclarations(addon)
     local list,seen={},{}
+    local excludedBindings={ConsolePortBindingSet=true,ConsolePortLoaderBinding=true}
     local function add(name,scope)
-        if name~='SetupSwapAccountDB' and name~='SetupSwapDB' and name~='_G' and not seen[name] then
+        if name~='SetupSwapAccountDB' and name~='SetupSwapDB' and name~='_G' and not excludedBindings[name] and not seen[name] then
             seen[name]=true; list[#list+1]={name=name,scope=scope,addon=addon}
         end
     end
@@ -125,7 +126,7 @@ function AM:CaptureSettings(profile)
     local snapshot={version=1,variables={},character=identity(),addons=0,skipped={}}
     local seen={}
     for _,entry in ipairs(self:Inventory()) do
-        if entry.name~=self.name and profile.addons[entry.name]==true then
+        if entry.name~=self.name and self:EffectiveState(profile,entry) then
             if IsAddOnLoaded(entry.name) then
                 local captured=false
                 for _,declaration in ipairs(self:SettingsDeclarations(entry.name)) do
@@ -154,7 +155,6 @@ function AM:CaptureSettings(profile)
 end
 function AM:BeginSettingsCapture(name,switchAfter)
     if not self:CanStartOperation() then return false end
-    if self.db.pendingBindings then self:Print('Wait for this profile\'s keybindings to finish restoring, then save settings.'); return false end
     if InCombatLockdown() then self:Print('Leave combat before saving a settings snapshot.'); return false end
     local profile=self.db.profiles[name]
     if not profile then self:Print('Unknown profile. Nothing changed.'); return false end
@@ -162,7 +162,7 @@ function AM:BeginSettingsCapture(name,switchAfter)
     if not ok then self:Print('Settings capture stopped: '..tostring(actionBars));return false end
     local layouts=self.CaptureFrameLayouts and profile and self:CaptureFrameLayouts(profile) or nil
     self.db.lastCapture={name=name,windows=layouts}
-    self.db.pendingSettings={kind='capture',name=name,character=identity(),switchAfter=switchAfter and true or false,actionBars=actionBars,layouts=layouts,chat=self.CaptureChatLayout and self:CaptureChatLayout(),native=self.CaptureNativeState and self:CaptureNativeState(),coverage=self.lastFrameCoverage,bindings=self.CaptureBindings and self:CaptureBindings()}
+    self.db.pendingSettings={kind='capture',name=name,character=identity(),switchAfter=switchAfter and true or false,actionBars=actionBars,layouts=layouts,chat=self.CaptureChatLayout and self:CaptureChatLayout(),native=self.CaptureNativeState and self:CaptureNativeState(),coverage=self.lastFrameCoverage}
     self:Print('Saving settings: reloading once to flush addon settings, then capturing the profile and restoring its windows.')
     ReloadUI(); return true
 end
@@ -170,7 +170,7 @@ function AM:PrepareSettingsSwitch(name)
     local profile=self.db.profiles[name]
     if profile and profile.captureSettings and type(profile.settings)=='table'
         and ((type(profile.settings.variables)=='table' and #profile.settings.variables>0)
-        or (type(profile.settings.layouts)=='table' and #profile.settings.layouts>0) or type(profile.settings.chat)=='table' or type(profile.settings.bindings)=='table' or self:SavedActionBars(profile.settings)) then
+        or (type(profile.settings.layouts)=='table' and #profile.settings.layouts>0) or type(profile.settings.chat)=='table' or self:SavedActionBars(profile.settings)) then
         self.db.pendingSettings={kind='restore',name=name,character=identity(),early=SetupSwapEarlyLoader~=nil}
         return true
     end
@@ -313,8 +313,6 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
     if makeBackup and actionBars then
         backup.actionBars={[self:ActionBarContext()]=self:CopySettings(self.db.pendingActionBarBackup or self:CaptureActionBars())}
     end
-    if snapshot.bindings and self.ValidateBindings then self:ValidateBindings(snapshot.bindings) end
-    if makeBackup and snapshot.bindings and self.CaptureBindings then backup.bindings=self:CopySettings(self.db.pendingBindingBackup or self:CaptureBindings()) end
     if makeBackup and self.CaptureFrameLayouts and snapshot.layouts then
         local selection={addons={}}
         for _,item in ipairs(snapshot.layouts) do selection.addons[item.addon]=true end
@@ -353,7 +351,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
             end
         end
     end
-    if makeBackup then self.db.settingsBackup=backup;self.db.pendingBindingBackup=nil;self.db.pendingActionBarBackup=nil end
+    if makeBackup then self.db.settingsBackup=backup;self.db.pendingActionBarBackup=nil end
     local function apply(logout)
         for _,item in ipairs(assignments) do
             if item.db then
@@ -418,7 +416,6 @@ function AM:UndoSettings()
     if not self.db.settingsBackup then self:Print('No settings backup available.'); return false end
     if self.db.settingsBackup.character~=identity() then self:Print('This settings backup belongs to a different character.'); return false end
     if self.PrepareNativeState then self:PrepareNativeState({captureSettings=true,settings=self.db.settingsBackup,addons=self:Snapshot()}) end
-    self.db.pendingBindings=nil
     self.db.pendingSettings={kind='undo',character=identity()}
     self:Print('Loading the settings backup; this may require two reloads.')
     ReloadUI(); return true
@@ -439,7 +436,6 @@ function AM:FinishSettingsOperation()
         snapshot.layouts=pending.layouts
         snapshot.chat=pending.chat
         snapshot.native=pending.native
-        snapshot.bindings=pending.bindings
         snapshot.actionBars=self:CopySettings(profile.settings and profile.settings.actionBars or {})
         if pending.actionBars then snapshot.actionBars[pending.actionBars.context]=pending.actionBars end
         snapshot.coverage=pending.coverage
@@ -484,7 +480,6 @@ function AM:FinishSettingsOperation()
         if pending.kind=='restore' and pending.earlyApplied then
             local snapshot=profile and profile.settings
             if not snapshot then self:Print('Settings operation canceled: snapshot unavailable.'); return end
-            if self.StageBindings then self:StageBindings(snapshot.bindings,pending.name) end
             self:StageActionBars(snapshot,pending.name)
             if self.StageFrameLayouts then self:StageFrameLayouts(pending.name,snapshot.layouts) end
             if self.StageChatLayout then self:StageChatLayout(snapshot.chat) end
@@ -504,7 +499,6 @@ function AM:FinishSettingsOperation()
         local ok,count=pcall(self.ApplySettings,self,snapshot,pending.kind=='restore' and not pending.earlyBackupAvailable,pending.name)
         self.operationContext=nil
         if not ok then self:Print('Settings restore stopped: '..tostring(count)); return end
-        if self.StageBindings then self:StageBindings(snapshot.bindings,pending.name) end
         self:StageActionBars(snapshot,pending.name)
         if self.StageFrameLayouts then self:StageFrameLayouts(pending.name,snapshot.layouts) end
         if self.StageChatLayout then self:StageChatLayout(snapshot.chat) end

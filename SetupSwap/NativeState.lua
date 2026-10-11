@@ -9,7 +9,7 @@ function AM:PrepareNativeState(profile)
     local native=profile and profile.captureSettings and profile.settings and profile.settings.native
     if native and type(native.minimapMask)=='string' then
         self.db.pendingMinimapMask=native.minimapMask
-    elseif IsAddOnLoaded('ElvUI') and not (profile and profile.addons.ElvUI) then
+    elseif IsAddOnLoaded('ElvUI') and not (profile and self:EffectiveState(profile,{name="ElvUI"})) then
         self.db.pendingMinimapMask=defaultMask
     end
 end

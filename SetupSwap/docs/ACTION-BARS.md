@@ -2,9 +2,9 @@
 
 Save and restore different ability arrangements when switching between desktop, gamepad, or custom profiles.
 
-Save settings & positions now captures native player action slots alongside the existing settings, layouts, chat, and keybindings. Each profile retains separate snapshots per realm/character and active talent spec. The player slots include form-bar pages and the extra player page; possession slots 121–132 and separate pet controls are excluded.
+Save settings & positions now captures native player action slots alongside the existing settings, layouts and chat. Each profile retains separate snapshots per realm/character and active talent spec. The player slots include form-bar pages and the extra player page; possession slots 121–132 and separate pet controls are excluded.
 
-Captured actions: spells with exact rank/identity, items, existing macros with matching name/body/scope, companions, equipment sets, and empty slots. Missing or unsupported entries leave their destination unchanged and appear in /ss log. No macros are created or edited. Restore waits for combat, vehicle/possession, held cursor objects, bindings, and required settings reloads. Switching or saving is blocked while restoration owns queued work. Placement failure attempts rollback of every attempted slot; rollback errors are reported if the client refuses it.
+Captured actions: spells with exact rank/identity, items, existing macros with matching name/body/scope, companions, equipment sets, and empty slots. Missing or unsupported entries leave their destination unchanged and appear in /ss log. No macros are created or edited. Restore waits for combat, vehicle/possession, held cursor objects and required settings reloads. Switching or saving is blocked while restoration owns queued work. Placement failure attempts rollback of every attempted slot; rollback errors are reported if the client refuses it.
 
 Profiles with no action-bar snapshot keep the current bars. Save each existing profile again to opt into this feature. Saving on one character/spec preserves the other action-bar snapshots for that profile. Addon settings remain subject to their existing capture scope; this change does not make all addon settings character-specific.
 
@@ -14,7 +14,7 @@ Client: CLIENT RESTART. Keep SavedVariables. Close WoW and replace both SetupSwa
 
 1. Activate desktop. Arrange ElvUI abilities, including at least two different spell placements, an empty slot, and an existing macro. Save settings & positions.
 2. Switch to gamepad. Arrange ConsolePort abilities differently on the base, LT, RT, and LT+RT bars. Save settings & positions.
-3. Switch desktop → gamepad → desktop several times. Verify abilities, empty slots, macros, positions, chat, and the previously tested Q/E bindings restore together.
+3. Switch desktop → gamepad → desktop several times. Verify abilities, empty slots, macros, positions, and chat restore together; native WoW keybindings should remain unchanged.
 4. For a druid, check Cat/Prowl, Bear, and caster bars in both profiles; check modifier layers in each form. These use native player slots and need actual client testing.
 5. Change one assignment, save the active profile, and confirm it persists after switching away and back and after logging out/in.
 6. If using dual spec, save distinct arrangements in the second spec for both profiles. Switch profiles in each spec and verify each retains its own assignments. No automatic spec switching is performed.

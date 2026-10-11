@@ -1,14 +1,13 @@
 ## Interface: 30300
 ## Title: SetupSwap
-## Notes: Switch desktop, gamepad, and custom profiles with addon settings, layouts, keybindings, and ability assignments on action bars.
+## Notes: Switch desktop, gamepad, and custom profiles with addon settings, layouts, ability assignments on action bars.
 ## Author: SuttonX
-## Version: 1.1.0
+## Version: 1.2.0
 ## OptionalDeps: !SetupSwapLoader
 ## SavedVariables: SetupSwapAccountDB
 ## SavedVariablesPerCharacter: SetupSwapDB
 Core.lua
 NativeState.lua
-Bindings.lua
 ActionBars.lua
 Diagnostics.lua
 FrameLayouts.lua

@@ -17,7 +17,7 @@ SetupSwap.SettingsCatalog = {
     },
     ['ConsolePort'] = {
         SavedVariables = {'ConsolePortSettings','ConsolePortCharacterSettings','ConsolePortUIFrames','ConsolePortUIConfig'},
-        SavedVariablesPerCharacter = {'ConsolePortBindingSet','ConsolePortMouse','ConsolePortUtility'},
+        SavedVariablesPerCharacter = {'ConsolePortMouse','ConsolePortUtility'},
     },
     ['ConsolePortBar'] = {
         SavedVariables = {'ConsolePortBarManifest'},
@@ -25,9 +25,6 @@ SetupSwap.SettingsCatalog = {
     },
     ['ConsolePortKeyboard'] = {
         SavedVariables = {'ConsolePortKeyboardLayout','ConsolePortKeyboardDictionary'},
-    },
-    ['ConsolePortLoader'] = {
-        SavedVariablesPerCharacter = {'ConsolePortLoaderBinding'},
     },
     ['ElvUI'] = {
         SavedVariables = {'ElvDB','ElvPrivateDB'},
