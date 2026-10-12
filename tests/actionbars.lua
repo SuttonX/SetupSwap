@@ -220,4 +220,84 @@ AM:ApplySettings({variables={
     {addon='ConsolePort',name='ConsolePortLoaderBinding',scope='SavedVariablesPerCharacter',value={changed=true}},
 }},false,'desktop')
 check(ConsolePortBindingSet.original and ConsolePortLoaderBinding.original,'Older ConsolePort binding snapshots cannot overwrite live binding variables')
+-- TomTom holds a cached pointer that AceDB invalidates on profile changes.
+local live={persistence={savewaypoints=true},arrow={arrival=15}}
+local old={persistence={savewaypoints=false}}
+local native={profile=old,defaults={profile={persistence={savewaypoints=true}}}}
+function native:SetProfile(target)
+    self.target=target;old.persistence=nil;self.profile=live
+end
+function native:GetCurrentProfile() return self.target end
+function native:RegisterDefaults() end
+native.callbacks={Fire=function() end}
+TomTom={db=native,profile=old}
+local aceLookup=AM.AceDatabase
+AM.AceDatabase=function(_,name) if name=='TomTomDB' then return native end end
+GetAddOnMetadata=function(addon,key) if addon=='TomTom' and key=='SavedVariables' then return 'TomTomDB' end end
+inventory[#inventory+1]={name='TomTom',enabled=true,dependencies={}}
+TomTomDB={};AM:ApplySettings({variables={{addon='TomTom',name='TomTomDB',scope='SavedVariables',mode='ace',value={profile=live}}}},false,'gamepad',true)
+check(TomTom.profile==native.profile and TomTom.profile.persistence.savewaypoints,'Early profile restore reconnects TomTom cache before deferred callbacks')
+local consumer={callbacks={Fire=function() assert(TomTom.profile.persistence.savewaypoints,'Questie saw stale TomTom profile') end}}
+TomTom.profile={};AM.startupSettingsCallbacks={{db=consumer,target='gamepad'},{db=native,target='gamepad'}}
+check(AM:RefreshStartupSettings()==2 and TomTom.profile==native.profile,'Questie callback can precede TomTom callback without stale cached profile')
+local waydb={profile={waypoints=true}};TomTom.waydb=waydb;TomTom.waypointprofile={}
+AM:ReconnectNativeProfileCache(waydb)
+check(TomTom.waypointprofile==waydb.profile,'TomTom waypoint profile cache also reconnected')
+local preserved=TomTom.profile;AM:ReconnectNativeProfileCache({profile={}})
+check(TomTom.profile==preserved,'Unrelated addon databases do not modify TomTom cache')
+AM.AceDatabase=aceLookup
+-- Minimap masks may be applied by ElvUI before SetupSwap loads.
+local mask
+Minimap={SetMaskTexture=function(_,texture) mask=texture end}
+local capturedHooks={}
+hooksecurefunc=function(_,_,fn) capturedHooks[#capturedHooks+1]=fn end
+SetupSwapEarlyLoader={minimapMask='Interface\\ChatFrame\\ChatFrameBackground'}
+ElvUI={{private={general={minimap={enable=true}}}}}
+dofile('SetupSwap/NativeState.lua')
+AM.minimapMask=nil
+check(AM:CaptureNativeState().minimapMask==SetupSwapEarlyLoader.minimapMask,'Early observed ElvUI mask captured before main addon hook')
+AM:RestoreNativeState({minimapMask='Textures\\MinimapMask'})
+check(mask=='Interface\\ChatFrame\\ChatFrameBackground','Enabled ElvUI restores square mask even with old circular snapshot')
+ElvUI[1].private.general.minimap.enable=false
+AM:RestoreNativeState({minimapMask='Interface\\ChatFrame\\ChatFrameBackground'})
+check(mask=='Textures\\MinimapMask','Disabled ElvUI minimap skin restores circular mask')
+IsAddOnLoaded=function() return false end
+AM:RestoreNativeState({minimapMask='Textures\\MinimapMask'})
+check(mask=='Textures\\MinimapMask','Gamepad without ElvUI restores saved circular mask')
+AM:RestoreNativeState({minimapMask='CustomMask'})
+check(mask=='CustomMask','Other minimap masks remain supported without ElvUI')
+-- Old snapshots must not detach Questie's internal rows or resize handles.
+UIParent={GetWidth=function() return 1000 end,GetHeight=function() return 800 end,GetEffectiveScale=function() return 1 end}
+local function movable(name,parent)
+    local frame={name=name,parent=parent,changes=0}
+    function frame:GetName() return self.name end
+    function frame:GetParent() return self.parent end
+    function frame:IsMovable() return true end
+    function frame:IsProtected() return false end
+    function frame:GetPoint() return 'TOPLEFT',self.parent,'TOPLEFT',10,20 end
+    function frame:GetCenter() return 500,400 end
+    function frame:GetEffectiveScale() return 1 end
+    function frame:ClearAllPoints() self.changes=self.changes+1 end
+    function frame:SetPoint() self.changes=self.changes+1 end
+    _G[name]=frame;return frame
+end
+local root=movable('Questie_BaseFrame',UIParent)
+local rows=movable('linePool3',root)
+local sizer=movable('Questie_Sizer',root)
+local nested=movable('QuestieInternalText',rows)
+local independent=movable('OtherAddonWindow',UIParent)
+local enumerated={root,rows,sizer,nested,independent}
+function EnumerateFrames(previous)
+    if not previous then return enumerated[1] end
+    for i,f in ipairs(enumerated) do if f==previous then return enumerated[i+1] end end
+end
+IsAddOnLoaded=function() return true end
+dofile('SetupSwap/FrameLayouts.lua')
+local layouts=AM:CaptureFrameLayouts({addons={['Questie-335']=true}})
+check(#layouts==2 and layouts[1].name=='Questie_BaseFrame' and layouts[2].name=='OtherAddonWindow','Capture keeps tracker anchor and independent windows; excludes tracker internals')
+local oldLayouts={}
+for _,f in ipairs(enumerated) do oldLayouts[#oldLayouts+1]={name=f.name,addon='__ui',generic=true,point='CENTER',relativePoint='BOTTOMLEFT',x=.5,y=.5} end
+local changed=AM:ApplyFrameLayouts(oldLayouts,{addons={['Questie-335']=true}})
+check(changed==2 and rows.changes==0 and sizer.changes==0 and nested.changes==0,'Older snapshots cannot reanchor Questie rows, resize handle or descendants')
+check(root.changes==2 and independent.changes==2,'Tracker root and other windows still restore positions')
 print(checks..' checks passed')

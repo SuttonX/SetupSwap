@@ -93,6 +93,8 @@ If two profiles have identical addon selections, profile detection cannot automa
 
 After installing a new addon, update and save the addon list in each profile that should use it.  **Switch to that profile**, configure the addon and ability placement, and then save settings again.  An addon missing from an older profile's list is disabled when that profile is activated.
 
+Questie tracker rows and resize handles remain managed by Questie; SetupSwap restores the main tracker position without reanchoring its internal components. Older captures remain usable without resaving.
+
 Deleted addons are ignored when matching the installed addon list.  SetupSwap does not install addons or recreate deleted addon folders.
 
 ## Commands and reporting

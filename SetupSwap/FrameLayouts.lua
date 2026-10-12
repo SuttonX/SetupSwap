@@ -6,7 +6,17 @@ local windows={OptimalRaidComp={'OptimalRaidCompFrame','ORC_CommandsWindow','ORC
 local function identity()
     return tostring(GetRealmName and GetRealmName() or '')..'/'..tostring(UnitName and UnitName('player') or '')
 end
-local function excluded(name)
+local function excluded(name,frame)
+    -- Questie's pooled rows and resize handle are internal layout components,
+    -- not independent windows. Reanchoring them to UIParent breaks the tracker.
+    if name and (name:find('^linePool') or name=='Questie_Sizer') then return true end
+    local parent=frame and frame.GetParent and frame:GetParent()
+    local seen={}
+    while parent and not seen[parent] do
+        seen[parent]=true
+        if parent.GetName and parent:GetName()=='Questie_BaseFrame' then return true end
+        parent=parent.GetParent and parent:GetParent()
+    end
     return not name or name:find('^SetupSwap') or name:find('^ChatFrame%d')
         or name:find('^StaticPopup') or name=='UIParent' or name=='WorldFrame'
 end
@@ -45,7 +55,7 @@ function AM:CaptureFrameLayouts(profile)
     local width,height=UIParent:GetWidth(),UIParent:GetHeight()
     if not width or not height or width<=0 or height<=0 then return result end
     local function capture(frame,name,addon,generic)
-        if seen[name] or excluded(name) or not writable(frame) then return end
+        if seen[name] or excluded(name,frame) or not writable(frame) then return end
         local point,relative,relativePoint,x,y=frame:GetPoint(1)
         local cx,cy
         if frame.GetCenter then cx,cy=frame:GetCenter() end
@@ -88,7 +98,7 @@ function AM:ApplyFrameLayouts(layouts,profile)
         local allowed=false
         for _,name in ipairs(windows[item.addon] or {}) do if name==item.name then allowed=true end end
         local candidate=type(item.name)=='string' and _G[item.name]
-        if item.generic and not excluded(item.name) and writable(candidate)
+        if item.generic and not excluded(item.name,candidate) and writable(candidate)
             and layoutCandidate(candidate) then allowed=true end
         local frame=allowed and candidate
         if frame and (item.addon=='__ui' or ((not profile or self:EffectiveState(profile,{name=item.addon})) and IsAddOnLoaded(item.addon)))

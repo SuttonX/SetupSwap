@@ -16,6 +16,10 @@ function AM:DiagnosticsText()
     line('SetupSwap version: '..tostring(GetAddOnMetadata and GetAddOnMetadata(self.name,'Version') or 'unknown'))
     line('Startup native refresh callbacks: '..tostring(self.db and self.db.lastStartupRefresh or 'none'))
     line('Startup helper: '..(SetupSwapEarlyLoader and 'loaded' or 'unavailable'))
+    line('Observed minimap mask: '..tostring(self.minimapMask or (SetupSwapEarlyLoader and SetupSwapEarlyLoader.minimapMask) or 'not observed'))
+    if type(TomTom)=='table' and TomTom.db then
+        line('TomTom settings cache: '..tostring(TomTom.profile==TomTom.db.profile)..'; persistence='..type(TomTom.profile and TomTom.profile.persistence))
+    end
     local mode=self.db and self.db.lastRestoreMode
     if mode then line('Last settings restore: '..tostring(mode.name)..'; '..tostring(mode.mode)..(mode.reason and ('; '..mode.reason) or '')..(mode.seeded and ('; seeded native databases='..mode.seeded) or '')) end
     local windows=self.db and self.db.lastWindowRestore

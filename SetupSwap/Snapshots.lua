@@ -292,10 +292,21 @@ end
 -- Addons initialized during ADDON_LOADED may cache db.profile or create UI
 -- before PLAYER_LOGIN. Refresh them once startup has finished, using their
 -- native profile callback rather than an addon-specific window integration.
+function AM:ReconnectNativeProfileCache(db)
+    -- TomTom keeps direct references to both native profiles. AceDB removes
+    -- defaults from the old profile during SetProfile, so the old reference can
+    -- lack persistence before the deferred ReloadOptions callback runs.
+    local tomtom=_G.TomTom
+    if type(tomtom)~='table' then return end
+    if tomtom.db==db then tomtom.profile=db.profile end
+    if tomtom.waydb==db then tomtom.waypointprofile=db.profile end
+end
 function AM:RefreshStartupSettings()
     local pending=self.startupSettingsCallbacks or {}
     self.startupSettingsCallbacks=nil
     local count=0
+    -- Reconnect providers before any consumer's callback can request waypoints.
+    for _,item in ipairs(pending) do self:ReconnectNativeProfileCache(item.db) end
     for _,item in ipairs(pending) do
         if item.db.callbacks and type(item.db.callbacks.Fire)=='function' then
             item.db.callbacks:Fire('OnProfileChanged',item.db,item.target)
@@ -358,6 +369,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
                 if not logout then
                     if early then selectStartupProfile(item.db,item.target)
                     else item.db:SetProfile(item.target) end
+                    self:ReconnectNativeProfileCache(item.db)
                 end
                 inject(item.db.profile,item.value.profile)
                 for scope,values in pairs(item.value.scopes or {}) do
@@ -480,6 +492,7 @@ function AM:FinishSettingsOperation()
         if pending.kind=='restore' and pending.earlyApplied then
             local snapshot=profile and profile.settings
             if not snapshot then self:Print('Settings operation canceled: snapshot unavailable.'); return end
+            if self.RestoreNativeState then self:RestoreNativeState(snapshot.native) end
             self:StageActionBars(snapshot,pending.name)
             if self.StageFrameLayouts then self:StageFrameLayouts(pending.name,snapshot.layouts) end
             if self.StageChatLayout then self:StageChatLayout(snapshot.chat) end
@@ -499,6 +512,7 @@ function AM:FinishSettingsOperation()
         local ok,count=pcall(self.ApplySettings,self,snapshot,pending.kind=='restore' and not pending.earlyBackupAvailable,pending.name)
         self.operationContext=nil
         if not ok then self:Print('Settings restore stopped: '..tostring(count)); return end
+        if self.RestoreNativeState then self:RestoreNativeState(snapshot.native) end
         self:StageActionBars(snapshot,pending.name)
         if self.StageFrameLayouts then self:StageFrameLayouts(pending.name,snapshot.layouts) end
         if self.StageChatLayout then self:StageChatLayout(snapshot.chat) end
