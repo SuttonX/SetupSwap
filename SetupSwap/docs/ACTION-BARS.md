@@ -2,7 +2,7 @@
 
 Save and restore different ability arrangements when switching between desktop, gamepad, or custom profiles.
 
-Save settings & positions now captures native player action slots alongside the existing settings, layouts and chat. Each profile retains separate snapshots per realm/character and active talent spec. The player slots include form-bar pages and the extra player page; possession slots 121–132 and separate pet controls are excluded.
+Save Action Bars / Macros captures native player action slots separately from addon settings, layouts and chat. Save Addon Settings + Positions preserves existing action-bar captures. Each profile retains separate snapshots per realm/character and active talent spec. The player slots include form-bar pages and the extra player page; possession slots 121–132 and separate pet controls are excluded.
 
 Captured actions: spells with exact rank/identity, items, existing macros, companions, equipment sets, and empty slots. Ordinary macros restore by tracked identity and preserve current contents, including blank names and edits; recognized addon-managed macros match stable ownership, name and scope while retaining their current dynamic body. Missing, ambiguous or unsupported entries leave their destination unchanged and appear in /ss log. No macros are created or edited. Restore waits for combat, vehicle/possession, held cursor objects and required settings reloads. Switching or saving is blocked while restoration owns queued work. Placement failure attempts rollback of every attempted slot; rollback errors are reported if the client refuses it.
 
@@ -12,8 +12,8 @@ Profiles with no action-bar snapshot keep the current bars. Save each existing p
 
 Client: CLIENT RESTART. Keep SavedVariables. Close WoW and replace both SetupSwap and !SetupSwapLoader folders. Back up WTF with WoW closed before the first test, because native action assignments are server-persisted and are not covered by a WTF backup alone. The addon includes the pre-switch action snapshot in /ss undo, but that recovery still depends on the client accepting restoration.
 
-1. Activate desktop. Arrange ElvUI abilities, including at least two different spell placements, an empty slot, and an existing macro. Save settings & positions.
-2. Switch to gamepad. Arrange ConsolePort abilities differently on the base, LT, RT, and LT+RT bars. Save settings & positions.
+1. Activate desktop. Arrange ElvUI abilities, including at least two different spell placements, an empty slot, and an existing macro. Save Action Bars / Macros.
+2. Switch to gamepad. Arrange ConsolePort abilities differently on the base, LT, RT, and LT+RT bars. Save Action Bars / Macros.
 3. Switch desktop → gamepad → desktop several times. Verify abilities, empty slots, macros, positions, and chat restore together; native WoW keybindings should remain unchanged.
 4. For a druid, check Cat/Prowl, Bear, and caster bars in both profiles; check modifier layers in each form. These use native player slots and need actual client testing.
 5. Change one assignment, save the active profile, and confirm it persists after switching away and back and after logging out/in.

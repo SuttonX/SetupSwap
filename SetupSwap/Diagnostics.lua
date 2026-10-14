@@ -14,6 +14,8 @@ function AM:DiagnosticsText()
         if item.stack then line(item.stack) end
     end
     line('SetupSwap version: '..tostring(GetAddOnMetadata and GetAddOnMetadata(self.name,'Version') or 'unknown'))
+    line('Options window ElvUI skin: '..tostring(self.ui and self.ui.elvUISkinned or false))
+    if self.elvUISkinError then line('ElvUI skin error: '..self.elvUISkinError) end
     line('Startup native refresh callbacks: '..tostring(self.db and self.db.lastStartupRefresh or 'none'))
     line('Startup helper: '..(SetupSwapEarlyLoader and 'loaded' or 'unavailable'))
     line('Observed minimap mask: '..tostring(self.minimapMask or (SetupSwapEarlyLoader and SetupSwapEarlyLoader.minimapMask) or 'not observed'))
@@ -26,6 +28,13 @@ function AM:DiagnosticsText()
     end
     if type(TomTom)=='table' and TomTom.db then
         line('TomTom settings cache: '..tostring(TomTom.profile==TomTom.db.profile)..'; persistence='..type(TomTom.profile and TomTom.profile.persistence))
+        local arrow=TomTom.db.profile and TomTom.db.profile.arrow
+        local position=arrow and arrow.position
+        line('TomTom native arrow anchor: '..tostring(position and position.point)..'; '..tostring(position and position.relativeTo)..'; x='..tostring(position and position.x)..'; y='..tostring(position and position.y))
+        if TomTomCrazyArrow and TomTomCrazyArrow.GetPoint then
+            local point,relative,rel,x,y=TomTomCrazyArrow:GetPoint(1)
+            line('TomTom live arrow anchor: '..tostring(point)..'; '..tostring(relative and relative.GetName and relative:GetName())..'; '..tostring(rel)..'; x='..tostring(x)..'; y='..tostring(y))
+        end
     end
     local mode=self.db and self.db.lastRestoreMode
     if mode then line('Last settings restore: '..tostring(mode.name)..'; '..tostring(mode.mode)..(mode.reason and ('; '..mode.reason) or '')..(mode.seeded and ('; seeded native databases='..mode.seeded) or '')) end
@@ -58,12 +67,13 @@ function AM:DiagnosticsText()
     return table.concat(lines,'\n')
 end
 
-function AM:ShowDiagnostics()
+function AM:ShowDiagnostics(report,titleText,refreshReport)
     local f=self.diagnosticsWindow
     if not f then
         f=CreateFrame('Frame','SetupSwapDiagnosticsWindow',UIParent)
         self.diagnosticsWindow=f
-        f:SetSize(math.min(760,UIParent:GetWidth()*.9),math.min(560,UIParent:GetHeight()*.85))
+        local height=UIParent:GetHeight()*.80
+        f:SetSize(math.min(UIParent:GetWidth()*.90,height*1.4),height)
         f:SetPoint('CENTER');f:SetFrameStrata('DIALOG');f:SetClampedToScreen(true)
         f:SetBackdrop({bgFile='Interface\\DialogFrame\\UI-DialogBox-Background',
             edgeFile='Interface\\DialogFrame\\UI-DialogBox-Border',tile=true,tileSize=32,edgeSize=32,
@@ -72,19 +82,20 @@ function AM:ShowDiagnostics()
         f:SetScript('OnDragStart',function(self) self:StartMoving() end)
         f:SetScript('OnDragStop',function(self) self:StopMovingOrSizing() end)
         local title=f:CreateFontString(nil,'OVERLAY','GameFontNormalLarge')
-        title:SetPoint('TOPLEFT',22,-20);title:SetText('SetupSwap log')
+        title:SetPoint('TOPLEFT',f,'TOPLEFT',f:GetWidth()*.03,-f:GetHeight()*.035);title:SetText('SetupSwap log');f.title=title
         local instruction=f:CreateFontString(nil,'OVERLAY','GameFontHighlightSmall')
-        instruction:SetPoint('TOPLEFT',22,-48);instruction:SetText('Click the text, Ctrl+A to select all, then Ctrl+C to copy.')
+        instruction:SetPoint('TOPLEFT',f,'TOPLEFT',f:GetWidth()*.03,-f:GetHeight()*.085);instruction:SetWidth(f:GetWidth()*.91);instruction:SetText('Click the text, Ctrl+A to select all, then Ctrl+C to copy.')
         local close=CreateFrame('Button',nil,f,'UIPanelCloseButton')
-        close:SetPoint('TOPRIGHT',-5,-5)
+        close:SetPoint('TOPRIGHT',f,'TOPRIGHT',-f:GetWidth()*.01,-f:GetHeight()*.01)
+        close:SetSize(f:GetWidth()*.04,f:GetHeight()*.06)
         close:SetScript('OnClick',function() f:Hide() end)
         local scroll=CreateFrame('ScrollFrame','SetupSwapDiagnosticsScroll',f,'UIPanelScrollFrameTemplate')
-        scroll:SetPoint('TOPLEFT',22,-73);scroll:SetPoint('BOTTOMRIGHT',-42,52)
+        scroll:SetPoint('TOPLEFT',f,'TOPLEFT',f:GetWidth()*.03,-f:GetHeight()*.135);scroll:SetPoint('BOTTOMRIGHT',f,'BOTTOMRIGHT',-f:GetWidth()*.055,f:GetHeight()*.095)
         local edit=CreateFrame('EditBox',nil,scroll)
         f.edit=edit;f.scroll=scroll
         edit:SetMultiLine(true);edit:EnableMouse(true);edit:SetAutoFocus(false);edit:SetMaxLetters(0)
-        edit:SetFontObject(ChatFontNormal);edit:SetTextInsets(4,4,4,4)
-        edit:SetWidth(f:GetWidth()-68);edit:SetHeight(1)
+        edit:SetFontObject(ChatFontNormal);edit:SetTextInsets(f:GetWidth()*.006,f:GetWidth()*.006,f:GetHeight()*.008,f:GetHeight()*.008)
+        edit:SetWidth(f:GetWidth()*.91);edit:SetHeight(f:GetHeight()*.01)
         scroll:SetScrollChild(edit)
         edit:SetScript('OnEscapePressed',function(self) self:ClearFocus();f:Hide() end)
         edit:SetScript('OnCursorChanged',function(self,x,y,width,height)
@@ -97,15 +108,17 @@ function AM:ShowDiagnostics()
         end)
         f:SetScript('OnHide',function() edit:ClearFocus() end)
         local select=CreateFrame('Button',nil,f,'UIPanelButtonTemplate')
-        select:SetSize(120,24);select:SetPoint('BOTTOMLEFT',22,18);select:SetText('Select all')
+        select:SetSize(f:GetWidth()*.17,f:GetHeight()*.045);select:SetPoint('BOTTOMLEFT',f,'BOTTOMLEFT',f:GetWidth()*.03,f:GetHeight()*.025);select:SetText('Select all')
         select:SetScript('OnClick',function() edit:SetFocus();edit:HighlightText() end)
         local refresh=CreateFrame('Button',nil,f,'UIPanelButtonTemplate')
-        refresh:SetSize(100,24);refresh:SetPoint('LEFT',select,'RIGHT',12,0);refresh:SetText('Refresh')
-        refresh:SetScript('OnClick',function() AM:ShowDiagnostics() end)
+        refresh:SetSize(f:GetWidth()*.15,f:GetHeight()*.045);refresh:SetPoint('LEFT',select,'RIGHT',f:GetWidth()*.02,0);refresh:SetText('Refresh')
+        refresh:SetScript('OnClick',function() if f.refreshReport then f.refreshReport() else AM:ShowDiagnostics() end end)
         if UISpecialFrames then table.insert(UISpecialFrames,'SetupSwapDiagnosticsWindow') end
     end
+    f.refreshReport=refreshReport
+    f.title:SetText(titleText or 'SetupSwap log')
     f:Show()
-    f.edit:SetText(self:DiagnosticsText())
+    f.edit:SetText(report or self:DiagnosticsText())
     f.edit:SetCursorPosition(0)
     f.scroll:SetVerticalScroll(0)
     f.edit:SetFocus()

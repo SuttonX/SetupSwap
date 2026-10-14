@@ -1,16 +1,15 @@
 local AM = SetupSwap
-local function label(parent, text, x, y, font)
+local function label(parent, text, font)
     local fs=parent:CreateFontString(nil,'OVERLAY',font or 'GameFontNormal')
-    fs:SetPoint('TOPLEFT',parent,'TOPLEFT',x,y); fs:SetText(text); return fs
+    fs:SetText(text);fs:SetJustifyH('LEFT');return fs
 end
-local function button(parent, text, width, x, y, handler)
+local function button(parent, text, handler)
     local b=CreateFrame('Button',nil,parent,'UIPanelButtonTemplate')
-    b:SetSize(width,24); b:SetPoint('TOPLEFT',parent,'TOPLEFT',x,y); b:SetText(text); b:SetScript('OnClick',handler)
-    return b
+    b:SetText(text);b:SetScript('OnClick',handler);return b
 end
-local function edit(parent, width, x, y)
+local function edit(parent)
     local e=CreateFrame('EditBox',nil,parent,'InputBoxTemplate')
-    e:SetSize(width,24); e:SetPoint('TOPLEFT',parent,'TOPLEFT',x,y); e:SetAutoFocus(false)
+    e:SetAutoFocus(false)
     e:SetScript('OnEscapePressed',function(self) self:ClearFocus() end)
     e:SetScript('OnEnterPressed',function(self) self:ClearFocus() end)
     return e
@@ -77,7 +76,7 @@ function AM:RequestSave()
     local isNew=requested and not self.db.profiles[requested]
     local name=self:SaveDraft()
     if name then
-        self:Print('Addon list saved. After addon or layout changes, activate '..name..', arrange the UI and abilities, then Save settings & positions again.')
+        self:Print('Addon list saved. After addon or layout changes, activate '..name..', arrange the UI and abilities, then Save Addon Settings + Positions again.')
         if isNew then StaticPopup_Show('SETUPSWAP_NEW_PROFILE',name,nil,name) end
     end
 end
@@ -98,9 +97,9 @@ function AM:RequestSettingsSave()
         local current=self:MatchingEnabledProfile()
         local prompt='The selected profile "'..name..'" or its edited addon list does not match the addons currently enabled in game.'
         if current then prompt=prompt..'\n\nCurrent matching profile: '..current..'.' end
-        prompt=prompt..'\n\nSave + Switch saves the shown addon list and activates it without capturing settings. After switching, arrange the UI and abilities, then click Save settings & positions to capture them.'
+        prompt=prompt..'\n\nSave + Switch saves the shown addon list and activates it without capturing settings. After switching, arrange the UI and abilities, then click Save Addon Settings + Positions to capture them.'
         if profile then
-            prompt=prompt..'\n\nOverwrite replaces "'..name..'" settings, positions, chat, and action bars with the CURRENT in-game setup. Its saved addon list is kept; no profile switch occurs.'
+            prompt=prompt..'\n\nOverwrite replaces "'..name..'" addon settings, positions, and chat with the CURRENT in-game setup. Its saved addon list is kept; no profile switch occurs.'
         else
             prompt=prompt..'\n\nSave this new profile first. Overwrite is available only for an existing saved profile.'
         end
@@ -112,6 +111,14 @@ function AM:RequestSettingsSave()
     profile.captureSettings=true; self.ui.draft.captureSettings=true
     self:RefreshUI()
     return self:BeginSettingsCapture(name,false)
+end
+function AM:RequestActionBarsSave()
+    local name,err=self:ValidName(self.ui.profileName:GetText())
+    if not name then self:Print(err);return false end
+    if not self:SaveActionBarsOnly(name) then return false end
+    self.ui.draft.captureSettings=true
+    self:RefreshUI()
+    return true
 end
 function AM:ConfirmSettingsOverwrite(data)
     if not self:CanStartOperation() then return false end
@@ -198,11 +205,12 @@ end
 function AM:RefreshUI()
     local f=self.ui; if not f then return end
     if not f.draft then self:LoadDraft() end
-    f.status:SetText('Last applied: '..(self.db.active or 'none')..'  |  Saved profiles: '..table.concat(self:ProfileNames(),', '))
+    f.status:SetText('Last applied: '..(self.db.active or 'none')..'  |  Saved profiles: '..#self:ProfileNames())
     if f.characterOnly then f.characterOnly:SetChecked(f.draft.customize==true) end
     if f.scope then f.scope:SetText(f.draft.customize and ('Character overrides: '..self:CharacterKey()) or 'Shared addon selection') end
     if f.saveProfile then f.saveProfile:SetText(f.draft.customize and 'Save overrides' or 'Save shared') end
     if f.includeSettings then f.includeSettings:SetChecked(f.draft.captureSettings==true) end
+    self:LayoutUI()
     self:RefreshRows()
 end
 function AM:BlockedDependencies(profile, entry, byName, visiting)
@@ -223,12 +231,12 @@ function AM:RefreshRows()
     local f=self.ui; if not f then return end
     local list,byName=self:Inventory()
     f.entries=list
-    FauxScrollFrame_Update(f.scroll,#list,#f.rows,26)
+    FauxScrollFrame_Update(f.scroll,#list,f.visibleRows or #f.rows,f.rowHeight or 1)
     local offset=FauxScrollFrame_GetOffset(f.scroll)
     local profile=f.draft
     if not profile then return end
     for i,row in ipairs(f.rows) do
-        local entry=list[offset+i]
+        local entry=i<=(f.visibleRows or #f.rows) and list[offset+i] or nil
         if entry then
             row.entry=entry; row.check:SetChecked(self:EffectiveState(profile,entry))
             row.blocked=entry.name~=self.name and self:BlockedDependencies(profile,entry,byName)
@@ -252,47 +260,161 @@ function AM:ShowUI()
         self.ui.draft=nil;self:LoadDraft()
         self.ui.profileName:SetText(self.ui.selected or '')
     end
-    self:RefreshUI(); self.ui:Show()
+    self:RefreshUI();if self.ApplyElvUISkin then self:ApplyElvUISkin(self.ui) end;self.ui:Show()
+end
+function AM:FitUIToScreen()
+    local f=self.ui;if not f or not UIParent then return end
+    local height=UIParent:GetHeight()*.65
+    local width=math.min(UIParent:GetWidth()*.90,height*1.08)
+    if width<=0 or height<=0 then return end
+    f:SetSize(width,height)
+    self:LayoutUI()
+end
+function AM:LayoutUI()
+    local f=self.ui
+    if not f or not f.guidance or f.layingOut then return end
+    local width,height=f:GetWidth(),f:GetHeight()
+    if not width or not height or width<=0 or height<=0 then return end
+    f.layingOut=true
+    local unit=math.min(width,height)*.017
+    local pad=width*.035
+    local gap=unit*.55
+    local content=width-pad*2
+    local buttonHeight=unit*2.3
+    local checkSize=unit*2.1
+    local y=height*.025
+    local function font(object,size)
+        local E=f.elvUISkinned and type(_G.ElvUI)=='table' and _G.ElvUI[1]
+        if E and E.db and E.db.general and object.FontTemplate then object:FontTemplate(nil,size);return end
+        local path,_,flags=object:GetFont()
+        object:SetFont(path or STANDARD_TEXT_FONT or 'Fonts\\FRIZQT__.TTF',size,flags)
+    end
+    local function rect(object,x,top,w,h,parent)
+        object:ClearAllPoints()
+        object:SetPoint('TOPLEFT',parent or f,'TOPLEFT',x,-top)
+        object:SetWidth(w);object:SetHeight(h)
+    end
+    local function text(object,size,w)
+        font(object,size or unit)
+        object:SetWidth(w or content);object:SetHeight(0)
+        local h=math.max(unit,object:GetStringHeight())
+        object:SetHeight(h);return h
+    end
+    local function flow(object,size,indent)
+        indent=indent or 0
+        local h=text(object,size,content-indent)
+        rect(object,pad+indent,y,content-indent,h)
+        y=y+h+gap
+    end
+    local function controls(container,objects,shares,top)
+        rect(container,pad,top,content,buttonHeight)
+        local available=content-gap*(#objects-1)
+        local x=0
+        for i,object in ipairs(objects) do
+            local w=available*shares[i]
+            rect(object,x,0,w,buttonHeight,container)
+            local fs=object.GetFontString and object:GetFontString() or object
+            font(fs,unit)
+            if fs.SetWordWrap then fs:SetWordWrap(false) end
+            if fs.GetStringWidth then
+                local measured=fs:GetStringWidth()
+                if measured>w-gap*2 then font(fs,unit*(w-gap*2)/measured) end
+            end
+            x=x+w+gap
+        end
+    end
+    local function checkbox(check,caption)
+        local h=text(caption,unit,content-checkSize-gap)
+        h=math.max(checkSize,h)
+        rect(check,pad,y,checkSize,checkSize)
+        rect(caption,pad+checkSize+gap,y+(h-caption:GetHeight())/2,content-checkSize-gap,caption:GetHeight())
+        y=y+h+gap
+    end
+    f.close:ClearAllPoints();f.close:SetPoint('TOPRIGHT',f,'TOPRIGHT',-pad*.3,-height*.008)
+    f.close:SetSize(unit*2.5,unit*2.5)
+    flow(f.heading,unit*1.5)
+    for _,step in ipairs(f.steps) do flow(step) end
+    flow(f.status)
+    flow(f.profileLabel)
+    controls(f.profileControls,{f.profileName,f.saveProfile,f.selectProfile,f.deleteProfile},{.40,.20,.25,.15},y)
+    f.placeholder:ClearAllPoints();f.placeholder:SetPoint('LEFT',f.profileName,'LEFT',gap,0)
+    font(f.placeholder,unit);f.placeholder:SetWidth(f.profileName:GetWidth()-gap*2)
+    y=y+buttonHeight+gap
+    flow(f.selectionHint)
+    flow(f.addonWarning)
+    checkbox(f.includeSettings,f.includeLabel)
+    checkbox(f.characterOnly,f.characterLabel)
+    flow(f.scope,unit,checkSize+gap)
+    controls(f.captureControls,{f.barsOnly,f.saveSettings},{.5,.5},y)
+    y=y+buttonHeight+gap
+    flow(f.legend)
+
+    -- Bottom controls reserve their space; the list takes the remaining height.
+    local guidanceHeight=text(f.guidance)
+    local guidanceTop=height-height*.025-guidanceHeight
+    rect(f.guidance,pad,guidanceTop,content,guidanceHeight)
+    local footerTop=guidanceTop-gap-buttonHeight
+    controls(f.footerControls,{f.useCurrent,f.selectAll,f.deselectAll,f.switchProfile},{.23,.19,.20,.38},footerTop)
+    local listHeight=math.max(0,footerTop-gap-y)
+    f.rowHeight=unit*2.2
+    f.visibleRows=math.min(#f.rows,math.max(1,math.floor(listHeight/f.rowHeight)))
+    local listWidth=content-unit*2.2 -- room for the native scrollbar
+    rect(f.scroll,pad,y,listWidth,listHeight)
+    for i,row in ipairs(f.rows) do
+        rect(row,0,(i-1)*f.rowHeight,listWidth,f.rowHeight,f.scroll)
+        rect(row.check,0,(f.rowHeight-checkSize)/2,checkSize,checkSize,row)
+        local remaining=listWidth-checkSize-gap*2
+        rect(row.title,checkSize+gap,0,remaining*.52,f.rowHeight,row)
+        rect(row.folder,checkSize+gap+remaining*.52+gap,0,remaining*.48,f.rowHeight,row)
+        font(row.title,unit);font(row.folder,unit)
+        for _,fs in ipairs({row.title,row.folder}) do
+            if fs.SetWordWrap then fs:SetWordWrap(false) end
+        end
+        if i>f.visibleRows then row:Hide() end
+    end
+    if self.LayoutElvUISkin then self:LayoutElvUISkin(f,unit) end
+    f.layingOut=nil
 end
 function AM:BuildUI()
     local f=CreateFrame('Frame','SetupSwapWindow',UIParent)
     self.ui=f; f.selected=nil;f:Hide()
-    f:SetSize(690,712); f:SetPoint('CENTER'); f:SetFrameStrata('DIALOG')
+    f:SetPoint('CENTER'); f:SetFrameStrata('DIALOG');f:SetClampedToScreen(true)
     f:SetBackdrop({bgFile='Interface\\DialogFrame\\UI-DialogBox-Background',edgeFile='Interface\\DialogFrame\\UI-DialogBox-Border',tile=true,tileSize=32,edgeSize=32,insets={left=11,right=12,top=12,bottom=11}})
     f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag('LeftButton')
     f:SetScript('OnDragStart',function(self) self:StartMoving() end)
     f:SetScript('OnDragStop',function(self) self:StopMovingOrSizing() end)
     tinsert(UISpecialFrames,'SetupSwapWindow')
-    local close=CreateFrame('Button',nil,f,'UIPanelCloseButton'); close:SetPoint('TOPRIGHT',-6,-6)
-    label(f,'SetupSwap '..(GetAddOnMetadata(self.name,'Version') or '1.0.0'),22,-20,'GameFontNormalLarge')
-    label(f,'1. Save shared / Save overrides saves only addon choices. Switch + Reload activates them.',22,-48,'GameFontHighlightSmall')
-    label(f,'2. Switch first. Arrange UI and abilities, then Save settings & positions.',22,-65,'GameFontHighlightSmall')
-    f.status=label(f,'',22,-86,'GameFontHighlightSmall')
-    label(f,'Profile name (quick switch with /ss followed by this name):',22,-108,'GameFontHighlightSmall')
-    f.profileName=edit(f,260,26,-130)
-    local placeholder=f.profileName:CreateFontString(nil,'OVERLAY','GameFontDisableSmall')
-    placeholder:SetPoint('LEFT',f.profileName,'LEFT',2,0)
-    placeholder:SetText('ex: desktop, gamepad, raiding, questing')
+    f.close=CreateFrame('Button',nil,f,'UIPanelCloseButton')
+    local version=tostring(GetAddOnMetadata(self.name,'Version') or 'unknown'):gsub('^v','')
+    f.heading=label(f,'SetupSwap v'..(version:match('^%d+%.%d+%.%d+') or version),'GameFontNormalLarge')
+    f.steps={
+        label(f,'1. Save shared / Save overrides saves addon choices. Switch + Reload activates them.','GameFontHighlightSmall'),
+        label(f,'2. Activate a profile, then save its settings or just this character\'s bars/macros.','GameFontHighlightSmall'),
+    }
+    f.status=label(f,'','GameFontHighlightSmall')
+    f.profileLabel=label(f,'Profile name (quick switch with /ss followed by this name):','GameFontHighlightSmall')
+    f.profileControls=CreateFrame('Frame',nil,f)
+    f.profileName=edit(f)
+    f.placeholder=f.profileName:CreateFontString(nil,'OVERLAY','GameFontDisableSmall')
+    f.placeholder:SetText('ex: desktop, gamepad, raiding')
     f.profileName:SetScript('OnTextChanged',function(self)
-        if self:GetText()=='' then placeholder:Show() else placeholder:Hide() end
+        if self:GetText()=='' then f.placeholder:Show() else f.placeholder:Hide() end
     end)
-    f.saveProfile=button(f,'Save profile',125,300,-130,function() AM:RequestSave() end)
-    button(f,'Select profile',145,430,-130,function(self) AM:ShowProfileMenu(self) end)
-    button(f,'Delete',85,580,-130,function()
+    f.saveProfile=button(f,'Save profile',function() AM:RequestSave() end)
+    f.selectProfile=button(f,'Select profile',function(self) AM:ShowProfileMenu(self) end)
+    f.deleteProfile=button(f,'Delete',function()
         local name=AM:ValidName(f.profileName:GetText())
-        if not name or not AM.db.profiles[name] then AM:Print('Enter a saved profile name to delete.'); return end
+        if not name or not AM.db.profiles[name] then AM:Print('Enter a saved profile name to delete.');return end
         StaticPopup_Show('SETUPSWAP_DELETE_PROFILE',name,nil,name)
     end)
-    label(f,'Current matching profile opens automatically. Select another to edit it.',22,-164,'GameFontHighlightSmall')
-    local addonWarning=label(f,'New addons: save the profile, then SWITCH TO IT before saving settings.\nSaving/selecting here does not activate it, you must click Switch and Reload.\nOtherwise, saving settings overwrites that profile with the current setup.',22,-178,'GameFontHighlightSmall')
-    addonWarning:SetWidth(630);addonWarning:SetJustifyH('LEFT')
+    f.selectionHint=label(f,'Current matching profile opens automatically. Select another to edit it.','GameFontHighlightSmall')
+    f.addonWarning=label(f,'New addons: save the addon list, then SWITCH TO THE PROFILE before capturing settings. Saving or selecting here does not activate it. A full settings save replaces the shared layout.','GameFontHighlightSmall')
     f.includeSettings=CreateFrame('CheckButton',nil,f,'UICheckButtonTemplate')
-    f.includeSettings:SetSize(24,24); f.includeSettings:SetPoint('TOPLEFT',22,-230)
-    label(f,'Restore saved settings when switching',52,-236,'GameFontHighlightSmall')
+    f.includeLabel=label(f,'Restore saved settings when switching','GameFontHighlightSmall')
     f.includeSettings:SetScript('OnClick',function(self) f.draft.captureSettings=self:GetChecked() and true or false end)
     f.includeSettings:SetScript('OnEnter',function(self)
         GameTooltip:SetOwner(self,'ANCHOR_RIGHT'); GameTooltip:SetText('Restore saved settings when switching')
-        GameTooltip:AddLine('Save profile stores the addon list only. Save settings & positions captures addon settings, positions, chat, and action-bar assignments. Unchecking this and saving removes this profile\'s settings snapshot.',1,1,1,true)
+        GameTooltip:AddLine('Save profile stores the addon list only. Save Addon Settings + Positions captures addon settings, positions and chat, preserving saved bars/macros. Unchecking this and saving removes this profile\'s settings snapshot.',1,1,1,true)
         GameTooltip:AddLine('Saving settings reloads once. Profile switches attempt one reload with the startup helper; a second reload is requested if early restoration is unavailable. /ss undo restores the last settings backup.',1,.82,0,true)
         GameTooltip:AddLine('Action bars are saved separately for each character and talent spec. Missing or ambiguous actions leave their slots unchanged; /ss log lists them.',1,1,1,true)
         GameTooltip:AddLine('Macros keep their current contents. Tracked ordinary macros support blank names and editing commands, names or icons without resaving. Keep SetupSwap enabled to track changes. Managed macros such as SmartTravel also check stable ownership.',1,1,1,true)
@@ -313,9 +435,8 @@ function AM:BuildUI()
     end)
     f.includeSettings:SetScript('OnLeave',function() GameTooltip:Hide() end)
     f.characterOnly=CreateFrame('CheckButton',nil,f,'UICheckButtonTemplate')
-    f.characterOnly:SetSize(24,24);f.characterOnly:SetPoint('TOPLEFT',22,-262)
-    label(f,'Customize addons for this specific character',52,-268,'GameFontHighlightSmall')
-    f.scope=label(f,'',52,-289,'GameFontHighlightSmall')
+    f.characterLabel=label(f,'Customize addons for this specific character','GameFontHighlightSmall')
+    f.scope=label(f,'','GameFontHighlightSmall')
     f.characterOnly:SetScript('OnClick',function(self)
         local enabled=self:GetChecked() and true or false
         local stored=AM.db.profiles[f.selected]
@@ -333,17 +454,31 @@ function AM:BuildUI()
         GameTooltip:Show()
     end)
     f.characterOnly:SetScript('OnLeave',function() GameTooltip:Hide() end)
-    label(f,'Checked = enabled. Gray = blocked by a requirement.',22,-316,'GameFontHighlightSmall')
-    button(f,'Save settings & positions',205,435,-302,function() AM:RequestSettingsSave() end)
+    f.captureControls=CreateFrame('Frame',nil,f)
+    f.legend=label(f,'Checked = enabled. Gray = blocked by a requirement.','GameFontHighlightSmall')
+    local barsOnly=button(f,'Save Action Bars / Macros',function() AM:RequestActionBarsSave() end)
+    f.barsOnly=barsOnly
+    barsOnly:SetScript('OnEnter',function(self)
+        GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:SetText('Save Action Bars / Macros')
+        GameTooltip:AddLine('Save ability and macro placements for this character and talent spec without changing shared addon settings, positions, chat or addon selections. Activate the profile first. No reload is needed.',1,1,1,true)
+        GameTooltip:Show()
+    end)
+    barsOnly:SetScript('OnLeave',function() GameTooltip:Hide() end)
+    f.saveSettings=button(f,'Save Addon Settings + Positions',function() AM:RequestSettingsSave() end)
+    f.saveSettings:SetScript('OnEnter',function(self)
+        GameTooltip:SetOwner(self,'ANCHOR_RIGHT');GameTooltip:SetText('Save Addon Settings + Positions')
+        GameTooltip:AddLine('Capture shared addon settings, window positions and chat. Saved action bars and macros for every character/spec are preserved. Reloads once to flush addon settings.',1,1,1,true)
+        GameTooltip:Show()
+    end)
+    f.saveSettings:SetScript('OnLeave',function() GameTooltip:Hide() end)
     f.scroll=CreateFrame('ScrollFrame','SetupSwapAddonScroll',f,'FauxScrollFrameTemplate')
-    f.scroll:SetPoint('TOPLEFT',22,-338); f.scroll:SetSize(622,286)
-    f.scroll:SetScript('OnVerticalScroll',function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,26,function() AM:RefreshRows() end) end)
+    f.scroll:SetScript('OnVerticalScroll',function(self,offset) FauxScrollFrame_OnVerticalScroll(self,offset,f.rowHeight or 1,function() AM:RefreshRows() end) end)
     f.rows={}
-    for i=1,11 do
-        local row=CreateFrame('Frame',nil,f); row:SetPoint('TOPLEFT',22,-338-(i-1)*26); row:SetSize(615,26)
-        row.check=CreateFrame('CheckButton',nil,row,'UICheckButtonTemplate'); row.check:SetSize(24,24); row.check:SetPoint('LEFT',0,0)
-        row.title=row:CreateFontString(nil,'OVERLAY','GameFontHighlightSmall'); row.title:SetPoint('LEFT',30,0); row.title:SetWidth(290); row.title:SetJustifyH('LEFT')
-        row.folder=row:CreateFontString(nil,'OVERLAY','GameFontDisableSmall'); row.folder:SetPoint('LEFT',325,0); row.folder:SetWidth(280); row.folder:SetJustifyH('LEFT')
+    for i=1,20 do
+        local row=CreateFrame('Frame',nil,f)
+        row.check=CreateFrame('CheckButton',nil,row,'UICheckButtonTemplate')
+        row.title=label(row,'','GameFontHighlightSmall')
+        row.folder=label(row,'','GameFontDisableSmall')
         row.check:SetScript('OnClick',function(self)
             if not row.entry then return end
             local ok,err=AM:SetSelection(f.selected,row.entry.name,self:GetChecked() and true or false,f.draft)
@@ -362,12 +497,17 @@ function AM:BuildUI()
         row:SetScript('OnLeave',function() GameTooltip:Hide() end)
         f.rows[i]=row
     end
-    button(f,'Use current',110,22,-642,function() f.draft.addons=AM:LoadedSnapshot(); AM:RefreshRows() end)
-    button(f,'Select all',95,142,-642,function() AM:SelectAll(true) end)
-    button(f,'Deselect all',100,247,-642,function() AM:SelectAll(false) end)
-    button(f,'Switch + Reload',155,487,-642,function() AM:RequestSwitch() end)
-    local guidance=label(f,'Save the profile, then switch to it. Saving alone does not activate it.\nSave settings includes positions, chat, and action bars. Save only while that profile is active.',22,-672,'GameFontHighlightSmall')
-    guidance:SetWidth(610);guidance:SetJustifyH('LEFT')
+    f.footerControls=CreateFrame('Frame',nil,f)
+    f.useCurrent=button(f,'Use current',function() f.draft.addons=AM:LoadedSnapshot();AM:RefreshRows() end)
+    f.selectAll=button(f,'Select all',function() AM:SelectAll(true) end)
+    f.deselectAll=button(f,'Deselect all',function() AM:SelectAll(false) end)
+    f.switchProfile=button(f,'Switch + Reload',function() AM:RequestSwitch() end)
+    f.guidance=label(f,'Addon settings saves update the shared layout. Bars/macros saves this character/spec.\nActivate the profile before capturing. Editing a tracked macro needs no new save.','GameFontHighlightSmall')
+    f:SetScript('OnSizeChanged',function() AM:LayoutUI();if f.draft then AM:RefreshRows() end end)
+    f:RegisterEvent('DISPLAY_SIZE_CHANGED');f:RegisterEvent('UI_SCALE_CHANGED')
+    f:SetScript('OnEvent',function() AM:FitUIToScreen() end)
+    self:FitUIToScreen()
+    if self.ApplyElvUISkin then self:ApplyElvUISkin(f) end
     StaticPopupDialogs.SETUPSWAP_SAVE_AND_SWITCH={
         text='%s',button1='Save + Switch',button2='Cancel',hasEditBox=true,
         timeout=0,whileDead=true,hideOnEscape=true,
@@ -377,7 +517,7 @@ function AM:BuildUI()
         EditBoxOnEscapePressed=function(self) self:GetParent():Hide() end,
     }
     StaticPopupDialogs.SETUPSWAP_NEW_PROFILE={
-        text='Profile "%s" saved: enabled/disabled addons only. Settings, positions and action bars have not been captured.\n\nEnable its addons now so you can arrange the UI and abilities?\n\nAfter reload, arrange that setup, reopen /ss and click Save settings & positions. This captures addon settings, positions, chat, and action bars.',
+        text='Profile "%s" saved: enabled/disabled addons only. Settings, positions and action bars have not been captured.\n\nEnable its addons now so you can arrange the UI and abilities?\n\nAfter reload, arrange that setup, reopen /ss and click Save Addon Settings + Positions. This captures addon settings, positions and chat. Use Save Action Bars / Macros separately for ability placements.',
         button1='Enable + Reload',button2='Later',timeout=0,whileDead=true,hideOnEscape=true,
         OnAccept=function(self,data) AM:Switch(data or self.data) end,
     }

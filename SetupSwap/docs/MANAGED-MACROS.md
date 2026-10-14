@@ -14,7 +14,7 @@ Keep SetupSwap enabled when modifying macros. Without access to native persisten
 
 ## Existing captures
 
-Legacy entries have no tracking ID. At login, current-character snapshots are adopted only when exact saved name/body/scope uniquely identifies a live ordinary macro. A changed or ambiguous old blank-named macro cannot safely be adopted. Arrange that profile and Save settings & positions once. Subsequent ordinary edits need no profile save.
+Legacy entries have no tracking ID. At login, current-character snapshots are adopted only when exact saved name/body/scope uniquely identifies a live ordinary macro. A changed or ambiguous old blank-named macro cannot safely be adopted. Arrange that profile and Save Action Bars / Macros once. Subsequent ordinary edits need no profile save.
 
 ## SmartTravel and other addons
 
@@ -43,8 +43,8 @@ Registered headers must be one exact # comment, with unique owner/key identity; 
 
 SavedVariables: KEEP. Client: CLIENT RESTART. Close WoW, back up WTF, and replace both SetupSwap and !SetupSwapLoader folders. Keep the current SmartTravel installation. Native keybinding management remains removed, as in the released SetupSwap version.
 
-1. Activate Desktop. Put SmartTravel in its intended slot and at least two different ordinary blank-named/question-mark macros in other slots. Use one conditional macro in several slots. Save settings & positions once.
-2. Activate Gamepad, arrange these macros in different slots, and Save settings & positions once.
+1. Activate Desktop. Put SmartTravel in its intended slot and at least two different ordinary blank-named/question-mark macros in other slots. Use one conditional macro in several slots. Save Action Bars / Macros once.
+2. Activate Gamepad, arrange these macros in different slots, and Save Action Bars / Macros once.
 3. Edit the commands of both ordinary blank-named macros without resaving settings. Switch back and forth repeatedly. Each position must contain the correct macro with its NEW contents. All placements of one conditional macro must reference the same macro and retain the conditionals.
 4. Change an ordinary macro's name/icon and repeat. No recapture should be needed while SetupSwap tracks the edit.
 5. Trigger SmartTravel changes by mounting/dismounting, swimming, indoor/outdoor transitions or modifiers. Switch repeatedly; its placements must retain the managed macro and current travel action/tooltip.

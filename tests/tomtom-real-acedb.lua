@@ -47,3 +47,81 @@ print('PASS Consumer callback can request a waypoint before TomTom refresh with 
 AM:ApplySettings(snapshot,true,'desktop',false)
 assert(TomTom.profile==TomTom.db.profile and TomTom.profile.persistence.cleardistance==10)
 print('PASS Fallback restore also keeps installed TomTom profile cache readable')
+
+-- Exercise the exact position persistence code from the user's TomTom build.
+local file=io.open('../tomtom-inspect/TomTom.lua','r')
+if file then
+    local source=file:read('*a');file:close()
+    local positionCode=assert(source:match('(%-%- Persist complete anchors.-)\nfunction TomTom:ADDON_LOADED'))
+    assert(load(positionCode,'TomTom native position functions'))()
+    UIParent={GetName=function() return 'UIParent' end,GetWidth=function() return 1000 end,
+        GetHeight=function() return 800 end,GetEffectiveScale=function() return 1 end}
+    local function window(name,x,y,scale)
+        local f={point='CENTER',relative=UIParent,rel='BOTTOMLEFT',x=x,y=y,scale=scale or 1,userPlaced=true}
+        function f:GetName() return name end
+        function f:GetParent() return UIParent end
+        function f:GetPoint() return self.point,self.relative,self.rel,self.x,self.y end
+        function f:GetCenter() return self.x,self.y end
+        function f:GetEffectiveScale() return self.scale end
+        function f:IsMovable() return true end
+        function f:IsProtected() return false end
+        function f:ClearAllPoints() end
+        function f:SetPoint(point,relative,rel,x,y) self.point=point;self.relative=relative;self.rel=rel;self.x=x;self.y=y end
+        function f:SetUserPlaced(value) self.userPlaced=value end
+        _G[name]=f;return f
+    end
+    TomTomCrazyArrow=window('TomTomCrazyArrow',300,600,.8)
+    TomTomBlock=window('TomTomBlock',500,100)
+    TomTom.db.profile.arrow.position={point='CENTER',relativeTo='UIParent',rel='BOTTOMLEFT',x=10,y=20}
+    TomTom.db.profile.block={position={point='CENTER',relativeTo='UIParent',rel='BOTTOMLEFT',x=30,y=40}}
+    local windows={TomTomCrazyArrow,TomTomBlock}
+    function EnumerateFrames(previous)
+        if not previous then return windows[1] end
+        if previous==windows[1] then return windows[2] end
+    end
+    dofile('SetupSwap/FrameLayouts.lua')
+    local desktop={addons={TomTom=true}}
+    local layouts=AM:CaptureFrameLayouts(desktop)
+    assert(#layouts==2)
+    AM.db.profiles.desktop=desktop
+    function ReloadUI() end
+    function AM:CaptureActionBars() return {version=1,context=self:ActionBarContext(),slots={}} end
+    assert(AM:BeginSettingsCapture('desktop',false))
+    AM.db.pendingSettings=nil
+    local saved=AM:AceSnapshot(TomTom.db)
+    assert(saved.profile.arrow.position.x==300 and saved.profile.arrow.position.y==600)
+    print('PASS Pre-capture sync saves the actual arrow position instead of an older native anchor')
+
+    -- Recreate the native DB as the mage, like a new character login.
+    lib.db_registry[TomTom.db]=nil;lib.db_registry[TomTom.waydb]=nil
+    function UnitName() return 'Mage' end
+    TomTom.db=lib:New('TomTomDB',{profile={arrow={scale=1},block={}}},'Mage')
+    TomTom.profile=TomTom.db.profile
+    TomTomCrazyArrow.x=900;TomTomCrazyArrow.y=50
+    TomTomCrazyArrow.scale=1.2
+    TomTom.db.RegisterCallback(TomTom,'OnProfileChanged',function(self)
+        self.profile=self.db.profile;self:RestoreWindowPositions()
+    end)
+    AM:ApplySettings({variables={{addon='TomTom',name='TomTomDB',scope='SavedVariables',mode='ace',value=saved}}},false,'desktop',true)
+    AM:RefreshStartupSettings()
+    AM:ApplyFrameLayouts(layouts,desktop)
+    assert(math.abs(TomTomCrazyArrow.x*TomTomCrazyArrow.scale-240)<.000001)
+    assert(math.abs(TomTomCrazyArrow.y*TomTomCrazyArrow.scale-480)<.000001)
+    print('PASS Shared arrow layout restores on the mage with a different frame scale')
+    local x,y=TomTomCrazyArrow.x,TomTomCrazyArrow.y
+    TomTom:RestoreWindowPositions()
+    assert(TomTomCrazyArrow.x==x and TomTomCrazyArrow.y==y and not TomTomCrazyArrow.userPlaced)
+    assert(TomTom.db.profile.arrow.position.x==x and TomTom.db.profile.arrow.position.y==y)
+    print('PASS Later native TomTom refresh cannot undo the shared arrow restore')
+
+    local alternate={{name='TomTomCrazyArrow',addon='TomTom',generic=true,point='CENTER',relativePoint='BOTTOMLEFT',x=.8,y=.2}}
+    for i=1,4 do
+        AM:ApplyFrameLayouts(alternate,desktop);TomTom:RestoreWindowPositions()
+        assert(math.abs(TomTomCrazyArrow.x*1.2-800)<.000001)
+        AM:ApplyFrameLayouts(layouts,desktop);TomTom:RestoreWindowPositions()
+        assert(math.abs(TomTomCrazyArrow.x*1.2-240)<.000001)
+    end
+    print('PASS Repeated alternate/shared layouts survive native arrow refreshes')
+    assert(TomTomBlock.x==500 and TomTomBlock.y==100)
+    print('PASS TomTom coordinate block retains its independent saved position')
+end

@@ -49,7 +49,7 @@ function AM:ValidName(name)
     if name == '' or #name > 24 or not name:match('^[a-z][a-z0-9_%-]*$') then
         return nil, 'Use 1-24 letters, digits, hyphens, or underscores; start with a letter.'
     end
-    local reserved={config=true,settings=true,switch=true,save=true,new=true,command=true,list=true,undo=true,log=true,diagnostics=true}
+    local reserved={config=true,settings=true,switch=true,save=true,new=true,command=true,list=true,undo=true,log=true,diagnostics=true,copy=true,copynames=true,help=true}
     if reserved[name] then return nil, 'That name is reserved for a SetupSwap command.' end
     return name
 end
@@ -250,8 +250,25 @@ function AM:DeleteProfile(name)
     self:RegisterCommands()
     return true
 end
+function AM:PrintCommandHelp()
+    for _,line in ipairs({
+        '/ss — open the editor (also /ss config or /ss settings).',
+        '/ss ? — list commands (also /ss help).',
+        '/ss PROFILE or /ss switch PROFILE — activate a saved profile and reload.',
+        '/ss list — list saved profiles and their shortcuts.',
+        '/ss new PROFILE — create a profile from current addon choices.',
+        '/ss save PROFILE — save addon enable/disable choices only.',
+        '/ss command PROFILE SHORTCUT — assign /SHORTCUT; omit SHORTCUT to remove it.',
+        '/ss copy ADDON FROM_PROFILE TO_PROFILE — copy one addon\'s saved settings and positions.',
+        '/ss copynames — open the list of addon short names used by copy.',
+        '/ss undo — restore the last settings backup.',
+        '/ss log — open diagnostics (also /ss diagnostics).',
+        'Use the editor: Save Addon Settings + Positions, or Save Action Bars / Macros.',
+    }) do self:Print(line) end
+end
 function AM:HandleCommand(message)
     local op, rest = trim(message):match('^(%S*)%s*(.-)$'); op=op:lower()
+    if op=='?' or op=='help' then self:PrintCommandHelp();return end
     if op == '' or op == 'config' or op == 'settings' then self:ShowUI(); return end
     if op == 'switch' then self:Switch(rest)
     elseif op == 'save' then self:SaveCurrent(rest)
@@ -261,6 +278,11 @@ function AM:HandleCommand(message)
         local name, command=rest:match('^(%S+)%s*(.-)$')
         local ok, err=self:SetCommand((name or ''):lower(), command or '')
         self:Print(ok and 'Profile command saved.' or err)
+    elseif op == 'copy' and self.CopyAddonSettings then
+        local addon,source,target=rest:match('^(%S+)%s+(%S+)%s+(%S+)%s*$')
+        if addon then self:CopyAddonSettings(addon:lower(),source:lower(),target:lower())
+        else self:Print('Usage: /ss copy ADDON FROM_PROFILE TO_PROFILE. Use /ss copynames for addon short names.') end
+    elseif op == 'copynames' and self.ShowCopyAddonNames then self:ShowCopyAddonNames()
     elseif op == 'undo' and self.UndoSettings then self:UndoSettings()
     elseif op == 'log' or op == 'diagnostics' then
         if self.ShowDiagnostics then self:ShowDiagnostics()
@@ -269,7 +291,7 @@ function AM:HandleCommand(message)
         local names={}; for name,p in pairs(self.db.profiles) do names[#names+1]=name..(p.command and ' (/'..p.command..')' or '') end
         table.sort(names); self:Print(table.concat(names, ', '))
     elseif self.db.profiles[op] then self:Switch(op)
-    else self:Print('/setupswap opens the editor. Commands: switch NAME, save NAME, new NAME, command NAME SHORTCUT, list, log. Switching reloads the UI. Profiles never apply automatically.') end
+    else self:Print('/setupswap opens the editor. Commands: switch NAME, save NAME, new NAME, command NAME SHORTCUT, copy ADDON FROM TO, copynames, list, log. Switching reloads the UI. Profiles never apply automatically.') end
 end
 function AM:Initialize()
     SetupSwapAccountDB = type(SetupSwapAccountDB)=='table' and SetupSwapAccountDB or {}
@@ -315,7 +337,7 @@ function AM:Initialize()
     local reminder=self.db.setupReminder
     self.db.setupReminder=nil
     if reminder and reminder==self.db.active then
-        self:Print('Profile '..reminder..' is active. Arrange the UI and abilities, reopen /ss, select '..reminder..', then click Save settings & positions. Settings, positions, chat, and action bars have not been captured yet.')
+        self:Print('Profile '..reminder..' is active. Arrange the UI and abilities, reopen /ss, select '..reminder..', then save addon settings/positions and action bars/macros separately. These have not been captured yet.')
     end
 end
 local frame=CreateFrame('Frame')

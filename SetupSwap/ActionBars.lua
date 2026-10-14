@@ -38,10 +38,13 @@ local function read(slot)
     else return {kind='unsupported',detail=tostring(kind)} end
     return entry
 end
-function AM:CaptureActionBars()
+function AM:CheckCaptureState()
     if InCombatLockdown() then error('Leave combat before saving action bars') end
     if temporaryBar() then error('Leave the vehicle or possession before saving action bars') end
-    if GetCursorInfo() then error('Put down the object on your cursor before saving action bars') end
+    if GetCursorInfo and GetCursorInfo() then error('Put down the object on your cursor before saving') end
+end
+function AM:CaptureActionBars()
+    self:CheckCaptureState()
     local result={version=1,context=self:ActionBarContext(),slots={}}
     for slot=1,MAX_SLOTS do if normalSlot(slot) then result.slots[slot]=read(slot) end end
     return result
@@ -183,6 +186,22 @@ end
 function AM:SavedActionBars(snapshot)
     if type(snapshot)~='table' or type(snapshot.actionBars)~='table' then return nil end
     return snapshot.actionBars[self:ActionBarContext()]
+end
+function AM:SaveActionBarsOnly(name)
+    if not self:CanStartOperation() then return false end
+    local profile=self.db.profiles[name]
+    if not profile then self:Print('Save and activate this profile first.');return false end
+    if self.db.active~=name or not self:ProfileMatchesEnabled(name) then
+        self:Print('Switch to '..name..' before saving its action bars.');return false
+    end
+    local ok,bars=pcall(self.CaptureActionBars,self)
+    if not ok then self:Print('Action-bar capture stopped: '..tostring(bars));return false end
+    profile.settings=profile.settings or {version=1,variables={}}
+    profile.settings.actionBars=profile.settings.actionBars or {}
+    profile.settings.actionBars[bars.context]=bars
+    profile.captureSettings=true
+    self:Print('Action bars saved for '..name..' on this character and talent spec. Shared settings and positions are unchanged.')
+    return true
 end
 local runner=CreateFrame('Frame')
 local function update(frame,delta)

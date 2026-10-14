@@ -158,11 +158,16 @@ function AM:BeginSettingsCapture(name,switchAfter)
     if InCombatLockdown() then self:Print('Leave combat before saving a settings snapshot.'); return false end
     local profile=self.db.profiles[name]
     if not profile then self:Print('Unknown profile. Nothing changed.'); return false end
-    local ok,actionBars=pcall(self.CaptureActionBars,self)
-    if not ok then self:Print('Settings capture stopped: '..tostring(actionBars));return false end
+    local ok,err=pcall(self.CheckCaptureState,self)
+    if not ok then self:Print('Settings capture stopped: '..tostring(err));return false end
+    if self.SyncTomTomWindowPosition then
+        for _,name in ipairs({'TomTomCrazyArrow','TomTomBlock'}) do
+            if self:EffectiveState(profile,{name='TomTom'}) then self:SyncTomTomWindowPosition(_G[name],name) end
+        end
+    end
     local layouts=self.CaptureFrameLayouts and profile and self:CaptureFrameLayouts(profile) or nil
     self.db.lastCapture={name=name,windows=layouts}
-    self.db.pendingSettings={kind='capture',name=name,character=identity(),switchAfter=switchAfter and true or false,actionBars=actionBars,layouts=layouts,chat=self.CaptureChatLayout and self:CaptureChatLayout(),native=self.CaptureNativeState and self:CaptureNativeState(),coverage=self.lastFrameCoverage}
+    self.db.pendingSettings={kind='capture',name=name,character=identity(),switchAfter=switchAfter and true or false,layouts=layouts,chat=self.CaptureChatLayout and self:CaptureChatLayout(),native=self.CaptureNativeState and self:CaptureNativeState(),coverage=self.lastFrameCoverage}
     self:Print('Saving settings: reloading once to flush addon settings, then capturing the profile and restoring its windows.')
     ReloadUI(); return true
 end
@@ -449,7 +454,6 @@ function AM:FinishSettingsOperation()
         snapshot.chat=pending.chat
         snapshot.native=pending.native
         snapshot.actionBars=self:CopySettings(profile.settings and profile.settings.actionBars or {})
-        if pending.actionBars then snapshot.actionBars[pending.actionBars.context]=pending.actionBars end
         snapshot.coverage=pending.coverage
         self.db.lastCapture={name=pending.name,windows=snapshot.layouts,chat=snapshot.chat}
         profile.settings=snapshot

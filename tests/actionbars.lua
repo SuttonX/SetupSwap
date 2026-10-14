@@ -120,10 +120,18 @@ local invalid=AM:CopySettings(saved);invalid.slots[1]=nil
 ok=pcall(AM.ApplyActionBars,AM,invalid)
 check(not ok,'Incomplete snapshot rejected before mutation')
 AM.db.profiles.desktop={addons={},captureSettings=true,settings={actionBars={other='preserved'}}}
-fixture();check(AM:BeginSettingsCapture('desktop',false),'Integrated capture schedules reload')
+fixture();local savedBars=AM:CaptureActionBars()
+AM.db.profiles.desktop.settings.actionBars[savedBars.context]=savedBars
+local realCapture=AM.CaptureActionBars
+AM.CaptureActionBars=function() error('Addon settings save must not read action slots') end
+check(AM:BeginSettingsCapture('desktop',false) and not AM.db.pendingSettings.actionBars,'Addon-only capture schedules reload without reading action bars')
+-- An older pending capture's actionBars must not overwrite existing saves either.
+AM.db.pendingSettings.actionBars={context=savedBars.context,slots={}}
 AM:FinishSettingsOperation()
 local settings=AM.db.profiles.desktop.settings
-check(settings.actionBars.other=='preserved' and AM:SavedActionBars(settings),'Capture retains other character/spec snapshots')
+check(settings.actionBars.other=='preserved' and AM:SavedActionBars(settings).slots[1].spellID==100,
+    'Addon-only capture preserves current and other character/spec snapshots')
+AM.CaptureActionBars=realCapture
 AM.db.pendingSettings={kind='restore',name='desktop',character='TestRealm/Druid',earlyApplied=true}
 AM:FinishSettingsOperation()
 check(AM.db.pendingActionBars~=nil and AM:OperationBusy(),'Early restore stages action bars and blocks new operations')
@@ -504,4 +512,97 @@ for _,f in ipairs(enumerated) do oldLayouts[#oldLayouts+1]={name=f.name,addon='_
 local changed=AM:ApplyFrameLayouts(oldLayouts,{addons={['Questie-335']=true}})
 check(changed==2 and rows.changes==0 and sizer.changes==0 and nested.changes==0,'Older snapshots cannot reanchor Questie rows, resize handle or descendants')
 check(root.changes==2 and independent.changes==2,'Tracker root and other windows still restore positions')
+-- Saving placements on another character must not replace the shared layout.
+AM.db.pendingSettings=nil;AM.db.pendingActionBars=nil;AM.followupReload=nil
+AM.ProfileMatchesEnabled=function() return true end
+local sharedVariables={{name='TomTomDB',value={arrow={position={x=100,y=200}}}}}
+local sharedLayouts={{name='TomTomCrazyArrow',x=.2,y=.8}}
+local sharedChat={windows={{name='ChatFrame1'}}}
+local druidBars={context='TestRealm/Druid/1',slots={}}
+local sharedSnapshot={version=1,variables=sharedVariables,layouts=sharedLayouts,chat=sharedChat,
+    actionBars={['TestRealm/Druid/1']=druidBars}}
+local selection={SetupSwap=true,TomTom=true}
+local overrides={['TestRealm/Druid']={FormFreedom=true,NugComboBar=true}}
+AM.db.profiles.desktop={addons=selection,characterAddons=overrides,settings=sharedSnapshot,captureSettings=true}
+AM.db.active='desktop';char='Mage';group=1
+check(AM:SaveActionBarsOnly('desktop'),'Action bars only saves the active profile on the mage')
+check(AM.db.profiles.desktop.settings==sharedSnapshot and sharedSnapshot.variables==sharedVariables
+    and sharedSnapshot.layouts==sharedLayouts and sharedSnapshot.chat==sharedChat,
+    'Action bars only preserves the shared settings, positions and chat')
+check(sharedSnapshot.actionBars['TestRealm/Druid/1']==druidBars
+    and sharedSnapshot.actionBars['TestRealm/Mage/1'].context=='TestRealm/Mage/1',
+    'Mage action-bar save preserves druid assignments')
+check(AM.db.profiles.desktop.addons==selection and AM.db.profiles.desktop.characterAddons==overrides
+    and not AM.db.pendingSettings,'Action bars only keeps addon choices and overrides without a reload')
+group=2;check(AM:SaveActionBarsOnly('desktop') and sharedSnapshot.actionBars['TestRealm/Mage/1']
+    and sharedSnapshot.actionBars['TestRealm/Mage/2'],'Action bars only keeps both mage talent specs')
+combat=true;check(not AM:SaveActionBarsOnly('desktop'),'Action bars only refuses combat');combat=false
+cursor={kind='item'};check(not AM:SaveActionBarsOnly('desktop'),'Action bars only preserves a held cursor');cursor=nil
+vehicle=true;check(not AM:SaveActionBarsOnly('desktop'),'Action bars only refuses temporary bars');vehicle=false
+AM.db.active='gamepad';check(not AM:SaveActionBarsOnly('desktop'),'Action bars only refuses an inactive profile')
+AM.db.active='desktop';AM.ProfileMatchesEnabled=function() return false end
+check(not AM:SaveActionBarsOnly('desktop'),'Action bars only refuses mismatched enabled addons')
+check(not AM:SaveActionBarsOnly('missing'),'Action bars only refuses an unknown profile')
+-- One addon's settings/positions can be copied without replacing the setup.
+dofile('SetupSwap/AddonCopy.lua')
+AM.ui=nil
+local nativeTarget={arrow={scale=1.2,position={x=9,y=8}},persistence={savewaypoints=true}}
+local tomEntry={addon='TomTom',name='TomTomDB',mode='ace',value={profile=nativeTarget}}
+local questieEntry={addon='Questie-335',name='QuestieDB',value={keep=true}}
+sharedSnapshot.variables={tomEntry,questieEntry}
+local questiePosition={name='Questie_BaseFrame',addon='Questie-335',x=.3,y=.4}
+sharedSnapshot.layouts={questiePosition,{name='TomTomCrazyArrow',addon='TomTom',x=.1,y=.1}}
+local sourceArrow={name='TomTomCrazyArrow',addon='TomTom',generic=true,point='CENTER',relativePoint='BOTTOMLEFT',x=.8,y=.2}
+local sourceNative={arrow={scale=.8,position={point='CENTER',x=500,y=200}},persistence={savewaypoints=false}}
+AM.db.profiles.gamepad={settings={layouts={sourceArrow},variables={{addon='TomTom',name='TomTomDB',mode='ace',restoreProfile='SetupSwap-gamepad',value={profile=sourceNative}}}}}
+local ok,vars,positions=AM:CopyAddonSettings('tomtom','gamepad','desktop')
+check(ok and vars==1 and positions==1,'Addon copy transfers selected settings and positions')
+check(sharedSnapshot.variables[1]==questieEntry and sharedSnapshot.layouts[1]==questiePosition,'Addon copy preserves unrelated settings and positions')
+local copiedTom=sharedSnapshot.variables[2]
+check(copiedTom.value.profile.arrow.scale==.8 and copiedTom.value.profile.persistence.savewaypoints==false,
+    'Addon copy includes all saved settings for the requested addon')
+check(copiedTom.restoreProfile==nil,'Copied native settings use the destination profile identity')
+check(sharedSnapshot.actionBars['TestRealm/Druid/1']==druidBars and sharedSnapshot.chat==sharedChat
+    and AM.db.profiles.desktop.addons==selection and AM.db.profiles.desktop.characterAddons==overrides,
+    'Addon copy preserves abilities, global chat, addon choices and character overrides')
+copiedTom.value.profile.arrow.position.x=777
+check(sourceNative.arrow.position.x==500 and AM.db.profiles.gamepad.settings.layouts[1]==sourceArrow,
+    'Addon copy creates independent captures without modifying the source')
+AM.db.profiles.empty={settings={}}
+check(not AM:CopyAddonSettings('tomtom','empty','desktop') and not AM:CopyAddonSettings('tomtom','desktop','desktop')
+    and not AM:CopyAddonSettings('tomtom','missing','desktop'),'Addon copy rejects absent captures and invalid profiles')
+check(not AM:CopyAddonSettings('notanaddon','gamepad','desktop'),'Addon copy rejects unknown aliases')
+AM.db.pendingSettings={kind='restore'}
+check(not AM:CopyAddonSettings('tomtom','gamepad','desktop'),'Addon copy waits for pending operations')
+AM.db.pendingSettings=nil
+local _,aliases=AM:CopyAddonNames()
+check(not aliases.questie and aliases.tomtom=='TomTom' and not aliases.setupswap,
+    'Copy aliases are short and exclude SetupSwap internals')
+local text=AM:CopyAddonNamesText()
+check(text:find('tomtom = TomTom',1,true) and text:find('settings and positions',1,true),'Copy name report identifies aliases and scope')
+AM.db.profiles.conflict={settings={variables={{addon='Other',name='TomTomDB',value={}}}}}
+check(not AM:CopyAddonSettings('tomtom','gamepad','conflict') and AM.db.profiles.conflict.settings.variables[1].addon=='Other',
+    'Shared variable ownership conflict stops copy before mutation')
+AM.db.profiles.fresh={addons={}}
+check(AM:CopyAddonSettings('tomtom','gamepad','fresh') and AM.db.profiles.fresh.captureSettings
+    and not next(AM.db.profiles.fresh.addons),'Addon copy can initialize an empty saved profile without enabling addons')
+AM.db.profiles.layoutOnly={settings={layouts={sourceArrow}}}
+check(AM:CopyAddonSettings('tomtom','layoutOnly','fresh') and #AM.db.profiles.fresh.settings.variables==1,
+    'Position-only source preserves destination settings when none were captured in the source')
+AM.db.profiles.collision={settings={variables={{addon='Test-Addon',name='TestDB'},{addon='Test_Addon',name='OtherTestDB'}}}}
+local entries,map=AM:CopyAddonNames();local seen={};local collisionCount=0
+for _,entry in ipairs(entries) do
+    check(not entry.alias:find('%s') and not seen[entry.alias],'Aliases are unique and contain no spaces')
+    seen[entry.alias]=true
+    if entry.name=='Test-Addon' or entry.name=='Test_Addon' then collisionCount=collisionCount+1;check(map[entry.alias]==entry.name,'Colliding aliases resolve exactly') end
+end
+check(collisionCount==2 and not map.testaddon,'Collisions do not guess an addon by its common base')
+local routed=false;local realCopy=AM.CopyAddonSettings
+AM.CopyAddonSettings=function(_,addon,source,target) routed=addon=='tomtom' and source=='gamepad' and target=='desktop' end
+AM:HandleCommand('copy TomTom Gamepad Desktop');check(routed,'Generic copy command parses all three arguments')
+AM.CopyAddonSettings=realCopy
+local output={};AM.Print=function(_,line) output[#output+1]=line end
+AM:HandleCommand('?')
+check(#output==12 and table.concat(output,'\n'):find('/ss copy ADDON FROM_PROFILE TO_PROFILE',1,true),'Question mark prints the complete command list in chat')
+output={};AM:HandleCommand('help');check(#output==12,'Help alias prints the same command list')
 print(checks..' checks passed')

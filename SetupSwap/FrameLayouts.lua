@@ -47,6 +47,22 @@ local function owner(name,profile)
     end
     return found or '__ui'
 end
+-- TomTom can restore its own anchor after a generic window restore. Keep the
+-- native saved anchor in sync, and release the per-character layout cache.
+function AM:SyncTomTomWindowPosition(frame,name)
+    local option=({TomTomCrazyArrow='arrow',TomTomBlock='block'})[name]
+    local tomtom=_G.TomTom
+    if not option or not IsAddOnLoaded('TomTom') or type(tomtom)~='table'
+        or not tomtom.db or type(tomtom.db.profile)~='table'
+        or type(tomtom.db.profile[option])~='table' or not writable(frame) then return end
+    local point,relative,relativePoint,x,y=frame:GetPoint(1)
+    local relativeName=relative and relative.GetName and relative:GetName() or 'UIParent'
+    if not point or (relative and relative~=UIParent and relativeName=='UIParent')
+        or type(x)~='number' or type(y)~='number' then return end
+    tomtom.db.profile[option].position={point=point,relativeTo=relativeName,
+        rel=relativePoint or point,x=x,y=y}
+    if frame.SetUserPlaced then frame:SetUserPlaced(false) end
+end
 function AM:CaptureFrameLayouts(profile)
     local result,seen={},{}
     local coverage={movable=0,protected=0,unnamed=0,captured=0}
@@ -109,6 +125,7 @@ function AM:ApplyFrameLayouts(layouts,profile)
                 ratio=frame:GetEffectiveScale()/UIParent:GetEffectiveScale()
             end
             frame:SetPoint(item.point,UIParent,item.relativePoint,item.x*UIParent:GetWidth()/ratio,item.y*UIParent:GetHeight()/ratio)
+            self:SyncTomTomWindowPosition(frame,item.name)
             count=count+1
         end
     end

@@ -11,7 +11,7 @@ Move from your desktop to handheld remote play on the couch.  Swap a questing in
 ## A setup for every way you play
 
 - **Desktop to couch:** Instantly swap between a mouse and keyboard desktop setup or a ConsolePort controller setup, with different addons, window positions, chat layouts, and ability arrangements.
-- **A restore point for your current setup:** save settings before experimenting with addon options, window positions, chat, or abilities.  Reapply that same profile to return to the saved setup; you can use SetupSwap without switching to a different profile.
+- **A restore point for your current setup:** save addon settings before experimenting with options, window positions or chat; save action bars/macros separately before rearranging abilities.  Reapply that same profile to return to the saved setup; you can use SetupSwap without switching to a different profile.
 - **Questing and leveling:** enable your quest tracker, navigation tools, and leveling helpers, with room to read objectives and explore.
 - **Raids and dungeons:** disable questing addons you do not need and enable your encounter tools, raid utilities, and group interface.  Restore the questing setup when the run ends.
 - **PvP and arenas:** maintain a separate selection of combat tools, screen layouts, and ability arrangements for competitive play.
@@ -63,11 +63,12 @@ The included startup helper allows settings to be restored early during profile 
 3. Click **Save shared** (or **Save overrides** for a character selection).  This saves **only the enabled/disabled addon list**.  It does not capture settings, positions, chat, or action bars.
 4. Click **Switch + Reload** to activate that profile.  A newly named profile also offers to enable its addons immediately.
 5. Arrange the UI and abilities.  Configure the addons and chat the way you want them.
-6. Reopen SetupSwap and click **Save settings & positions**.  This captures the setup, including action-bar assignments, using a reload to flush addon settings.
+6. Reopen SetupSwap and click **Save Addon Settings + Positions**. This captures addon settings, window positions, and chat using a reload, and preserves saved action bars.
+7. Click **Save Action Bars / Macros** separately to capture this character/spec's ability and macro placements without reloading or changing the shared layout.
 
 **Saving or selecting a profile in the editor does not activate it.  Switch to it before saving its settings.**
 
-Repeat for your other setups.  Save settings again after changing positions, addon configuration, chat, or action-bar assignments.
+Repeat for your other setups. Save settings again after changing positions, addon configuration, or chat. For new ability or macro placements, use **Save Action Bars / Macros** on the active profile; this updates only the current character/spec and does not reload or overwrite shared settings. Editing an already tracked macro does not require saving again.
 
 ## Switch your way
 
@@ -81,36 +82,43 @@ Switches normally aim to finish with **one reload**.  When early restoration is 
 
 ## Clear choices before a settings overwrite
 
-When **Save settings & positions** detects that the selected profile or edited addon list differs from the enabled addons, it offers:
+When **Save Addon Settings + Positions** detects that the selected profile or edited addon list differs from the enabled addons, it offers:
 
 - **Save + Switch:** save the displayed addon list and activate it.  Arrange that setup, then save its settings separately.
-- **Overwrite:** deliberately capture the current in-game setup into the selected existing profile, keeping its saved addon list and without switching profiles.
+- **Overwrite:** deliberately capture current addon settings, positions and chat into the selected existing profile. Its addon list and saved action bars/macros are preserved; no profile switch occurs.
 - **Cancel:** leave everything unchanged.
 
 If two profiles have identical addon selections, profile detection cannot automatically identify the current profile.  Choose the correct name from the list before saving settings.
 
 ## Adding or removing addons
 
-After installing a new addon, update and save the addon list in each profile that should use it.  **Switch to that profile**, configure the addon and ability placement, and then save settings again.  An addon missing from an older profile's list is disabled when that profile is activated.
+After installing a new addon, update and save the addon list in each profile that should use it.  **Switch to that profile**, configure the addon, and save addon settings/positions. Save action bars/macros separately after changing ability placements.  An addon missing from an older profile's list is disabled when that profile is activated.
 
 Questie tracker rows and resize handles remain managed by Questie; SetupSwap restores the main tracker position without reanchoring its internal components. Older captures remain usable without resaving.
 
 Deleted addons are ignored when matching the installed addon list.  SetupSwap does not install addons or recreate deleted addon folders.
 
+The options window uses container-relative sizing and automatically adopts ElvUI's skin when ElvUI is loaded. ElvUI_AddOnSkins is not required.
+
 ## Commands and reporting
 
 | Command | Action |
 | --- | --- |
-| `/ss` | Open the settings window |
-| `/ss` *name* | Activate a saved profile |
+| `/ss` (also `/ss config`, `/ss settings`) | Open the settings window |
+| `/ss ?` (also `/ss help`) | Print every supported command in chat |
+| `/ss` *name* (also `/ss switch` *name*) | Activate a saved profile |
 | `/ss list` | List saved profiles |
 | `/ss new` *name* | Create an addon-list profile from current enabled states |
 | `/ss save` *name* | Save current enabled states to a profile |
 | `/ss command` *name* *shortcut* | Assign an optional direct shortcut, such as `/desk` |
-| `/ss log` | Open a selectable, copyable diagnostic report |
+| `/ss copy` *addon* *from-profile* *to-profile* | Copy one addon's saved settings and positions between profiles |
+| `/ss copynames` | Open a copyable list of addon short names for the copy command |
+| `/ss log` (also `/ss diagnostics`) | Open a selectable, copyable diagnostic report |
 | `/ss undo` | Restore the last settings backup for the current character |
 
 `/setupswap` is also available.  Existing slash commands from other addons are not replaced.
+
+To reuse one addon's captured **settings and positions**, run `/ss copynames` and use its short name. For example, `/ss copy tomtom gamepad desktop` copies TomTom's saved settings and positions from Gamepad into Desktop. Then run `/ss desktop` to apply them. This reads the saved capture, not the addon's current live state. It preserves other addons' captures, profile addon selections, character overrides, and native action-bar snapshots. It does not enable the copied addon automatically.
 
 For an issue report, include the SetupSwap version, affected addons, reproduction steps, and the text from **`/ss log`**.  It includes capture details and restore results without requiring a separate error-catching addon.
 
@@ -126,9 +134,9 @@ SetupSwap is a setup manager, not a filesystem backup.  Keep a backup of your WT
 
 ## Separate ability arrangements for desktop and gamepad
 
-Arrange your abilities for ElvUI or Blizzard bars in your desktop profile, then click **Save settings & positions**.  Switch to your gamepad profile, arrange abilities for ConsolePort, and save again.  Switching profiles restores the corresponding native action slots; the two interfaces do not need matching visible bars.
+Arrange your abilities for ElvUI or Blizzard bars in your desktop profile, then click **Save Action Bars / Macros**.  Switch to your gamepad profile, arrange abilities for ConsolePort, and save again.  Switching profiles restores the corresponding native action slots; the two interfaces do not need matching visible bars.
 
-Each profile keeps a separate action-bar snapshot for each character and talent spec.  Save each spec separately.  Older profiles and character/spec combinations without a saved snapshot leave your bars unchanged.  Save settings again to add action bars to an existing profile.
+Each profile keeps a separate action-bar snapshot for each character and talent spec.  Save each spec separately.  Older profiles and character/spec combinations without a saved snapshot leave your bars unchanged.  Use **Save Action Bars / Macros** to add or update assignments without replacing the shared layout. The character override checkbox affects addon enable/disable choices; settings, positions, and chat remain shared.
 
 Unavailable spells, missing items, deleted or unidentifiable macros, and unsupported actions leave their destination slots unchanged and are reported in `/ss log`.  Managed macros use a recognized stable ownership marker instead of exact dynamic body text. Ordinary macros retain their tracked identity and current contents, including when names are blank. Older captures without tracking information are adopted only by an unambiguous exact match, or can be recaptured once. Spell ranks are matched exactly.  Pet, vehicle, and possession controls are excluded.  Save outside combat and vehicles, with nothing on the cursor.  `/ss undo` includes the action-bar backup for the current character/spec.
 
