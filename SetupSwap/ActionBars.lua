@@ -28,6 +28,7 @@ local function read(slot)
         entry.name=name;entry.body=body
         entry.characterMacro=id>(MAX_ACCOUNT_MACROS or 36)
         if not entry.name or not entry.body then return {kind='unsupported',detail='Unreadable macro'} end
+        entry.macroToken=AM:MacroIdentityAt(id)
     elseif kind=='companion' and GetCompanionInfo then
         entry.subtype=subtype
         local _,name,spell=GetCompanionInfo(subtype,id)
@@ -55,6 +56,7 @@ function AM:ValidateActionBars(value)
             if e.kind=='spell' and (type(e.name)~='string' or type(e.rank)~='string') then error('Invalid saved spell') end
             if e.kind=='item' and (type(e.id)~='number' or e.id<1) then error('Invalid saved item') end
             if e.kind=='macro' and (type(e.name)~='string' or type(e.body)~='string' or type(e.characterMacro)~='boolean') then error('Invalid saved macro') end
+            if e.kind=='macro' and e.macroToken~=nil and (type(e.macroToken)~='string' or not e.macroToken:match('^m%d+$')) then error('Invalid tracked macro identity') end
             if e.kind=='equipmentset' and type(e.name)~='string' then error('Invalid saved equipment set') end
             if e.kind=='companion' and ((e.subtype~='MOUNT' and e.subtype~='CRITTER') or type(e.spellID)~='number') then error('Invalid saved companion') end
         end
@@ -80,17 +82,18 @@ local function resolve(e)
         if GetItemCount(e.id)>0 then return e.id end
         return nil,'Item not in inventory'
     elseif e.kind=='macro' then
+        if e.macroToken and not AM:ManagedMacroIdentity(e.body) then return AM:ResolveMacroIdentity(e.macroToken,e.characterMacro) end
         local match
         local start=e.characterMacro and (MAX_ACCOUNT_MACROS or 36)+1 or 1
         local finish=e.characterMacro and (MAX_ACCOUNT_MACROS or 36)+(MAX_CHARACTER_MACROS or 18) or (MAX_ACCOUNT_MACROS or 36)
         for index=start,finish do
             local name,_,body=GetMacroInfo(index)
-            if name==e.name and body==e.body then
+            if name and body and AM:SameMacro({name=name,body=body,characterMacro=e.characterMacro},e) then
                 if match then return nil,'Ambiguous macro' end
                 match=index
             end
         end
-        return match,'Macro missing or edited'
+        return match,AM:ManagedMacroIdentity(e.body) and 'Managed macro missing or ownership changed' or 'Macro missing or renamed'
     elseif e.kind=='companion' then
         for index=1,GetNumCompanions(e.subtype) do
             local _,_,spell=GetCompanionInfo(e.subtype,index)
@@ -109,12 +112,19 @@ local function same(a,b)
     if a.kind=='empty' then return true end
     if a.kind=='spell' then return a.name==b.name and a.rank==b.rank and (not b.spellID or a.spellID==b.spellID) end
     if a.kind=='item' then return a.id==b.id end
-    if a.kind=='macro' then return a.name==b.name and a.body==b.body and a.characterMacro==b.characterMacro end
+    if a.kind=='macro' then return AM:SameMacro(a,b) end
     if a.kind=='companion' then return a.subtype==b.subtype and a.spellID==b.spellID end
     if a.kind=='equipmentset' then return a.name==b.name end
     return false
 end
 local function place(slot,e,index)
+    if e.kind=='macro' then
+        -- Macro creation/deletion by another addon may reorder indices after
+        -- planning. Re-resolve uniquely immediately before pickup and rollback.
+        local current,why=resolve(e)
+        if not current then error('Cannot restore macro in slot '..slot..': '..tostring(why)) end
+        index=current
+    end
     if e.kind=='empty' then
         if GetActionInfo(slot) then PickupAction(slot);ClearCursor() end
     else
@@ -136,7 +146,13 @@ function AM:ApplyActionBars(value)
     -- Resolve targets and rollback actions before making any changes. Missing
     -- abilities/macros/items leave their destination slots untouched.
     for slot=1,MAX_SLOTS do
-        if normalSlot(slot) and not same(before.slots[slot],value.slots[slot]) then
+        if normalSlot(slot) and same(before.slots[slot],value.slots[slot]) then
+            local e=value.slots[slot]
+            if e.kind=='macro' then
+                local target,reason=resolve(e)
+                if not target then skipped[#skipped+1]='Slot '..slot..': '..tostring(reason) end
+            end
+        elseif normalSlot(slot) then
             local e=value.slots[slot]
             local target,reason=resolve(e)
             local previous,previousReason=resolve(before.slots[slot])

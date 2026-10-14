@@ -17,6 +17,13 @@ function AM:DiagnosticsText()
     line('Startup native refresh callbacks: '..tostring(self.db and self.db.lastStartupRefresh or 'none'))
     line('Startup helper: '..(SetupSwapEarlyLoader and 'loaded' or 'unavailable'))
     line('Observed minimap mask: '..tostring(self.minimapMask or (SetupSwapEarlyLoader and SetupSwapEarlyLoader.minimapMask) or 'not observed'))
+    local macroBook=self.db and self.db.macroIdentities
+    if macroBook then
+        local accountCount,characterCount=0,0
+        for _ in pairs(macroBook.account or {}) do accountCount=accountCount+1 end
+        for _ in pairs(macroBook.characters and macroBook.characters[self:CharacterKey()] or {}) do characterCount=characterCount+1 end
+        line('Tracked native macros: account='..accountCount..'; current character='..characterCount)
+    end
     if type(TomTom)=='table' and TomTom.db then
         line('TomTom settings cache: '..tostring(TomTom.profile==TomTom.db.profile)..'; persistence='..type(TomTom.profile and TomTom.profile.persistence))
     end

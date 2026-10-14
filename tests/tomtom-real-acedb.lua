@@ -14,7 +14,7 @@ SlashCmdList={};DEFAULT_CHAT_FRAME={AddMessage=function() end}
 dofile('../tomtom-test-libs/LibStub.lua')
 dofile('../tomtom-test-libs/CallbackHandler-1.0.lua')
 dofile('../tomtom-test-libs/AceDB-3.0.lua')
-dofile('SetupSwap/Core.lua');dofile('SetupSwap/Snapshots.lua');dofile('SetupSwap/ActionBars.lua')
+dofile('SetupSwap/Core.lua');dofile('SetupSwap/Snapshots.lua');dofile('SetupSwap/ManagedMacros.lua');dofile('SetupSwap/MacroIdentity.lua');dofile('SetupSwap/ActionBars.lua')
 local AM=SetupSwap
 AM.db={profiles={}}
 local lib=LibStub('AceDB-3.0')

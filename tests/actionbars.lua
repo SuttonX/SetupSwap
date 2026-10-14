@@ -28,6 +28,24 @@ function GetSpellTabInfo() return '',nil,0,#spells end
 function GetSpellName(index) local e=spells[index];if e then return e.name,e.rank end end
 function GetSpellLink(index) local e=spells[index];if e then return '|Hspell:'..e.id..'|h' end end
 function GetMacroInfo(index) local e=macros[index];if e then return e.name,1,e.body end end
+function EditMacro(index,name,icon,body)
+    local e=assert(macros[index]);e.name=name or e.name;e.body=body or e.body;return index
+end
+function DeleteMacro(index)
+    if not macros[index] then return end
+    local last=index>36 and 54 or 36
+    for i=index,last do macros[i]=macros[i+1] end
+end
+function CreateMacro(name,icon,body,character)
+    local first,last=character and 37 or 1,character and 54 or 36
+    for i=first,last do if not macros[i] then macros[i]={name=name,body=body};return i end end
+end
+function hooksecurefunc(target,fn)
+    local original=_G[target]
+    _G[target]=function(...)
+        local result=original(...);fn(...);return result
+    end
+end
 function GetItemCount(id) return items[id] or 0 end
 function GetNumCompanions() return #companions end
 function GetCompanionInfo(_,index) local e=companions[index];return 1,e.name,e.id end
@@ -48,6 +66,7 @@ SlashCmdList={}
 DEFAULT_CHAT_FRAME={AddMessage=function() end}
 dofile('SetupSwap/Core.lua')
 dofile('SetupSwap/Snapshots.lua')
+dofile('SetupSwap/ManagedMacros.lua');dofile('SetupSwap/MacroIdentity.lua')
 dofile('SetupSwap/ActionBars.lua')
 local AM=SetupSwap
 AM.db={profiles={}}
@@ -74,16 +93,17 @@ AM:ApplyActionBars(saved)
 check(bars[4].id==2,'Macro index changes resolved without crossing account/character scope')
 macros[2].body='/changed';bars[4]={kind='spell',id=1}
 count,skipped=AM:ApplyActionBars(saved)
-check(bars[4].kind=='spell' and #skipped==1,'Edited macro leaves destination unchanged and is reported')
+check(bars[4].kind=='macro' and bars[4].id==2 and #skipped==0 and macros[2].body=='/changed','Edited ordinary macro restores with its current body')
 items[123]=0;bars[3]={kind='item',id=456}
 count,skipped=AM:ApplyActionBars(saved)
-check(bars[3].id==456 and #skipped==2,'Missing item leaves destination unchanged')
+check(bars[3].id==456 and #skipped==1,'Missing item leaves destination unchanged')
 spells[2]=nil;bars[1]={kind='spell',id=1}
 count,skipped=AM:ApplyActionBars(saved)
-check(bars[1].id==1 and #skipped==3,'Unlearned spell leaves destination unchanged')
+check(bars[1].id==1 and #skipped==2,'Unlearned spell leaves destination unchanged')
 spells={{name='Heal',rank='Rank 1',id=100},{name='Barkskin',rank='',id=200}}
 macros={[1]={name='Help',body='/help'},[37]={name='Help',body='/help'}};items[123]=2
 fixture();bars[1]={kind='spell',id=2};bars[2]={kind='spell',id=1};failSlot=2
+saved=AM:CaptureActionBars();saved.slots[1],saved.slots[2]=saved.slots[2],saved.slots[1]
 local ok,err=pcall(AM.ApplyActionBars,AM,saved)
 check(not ok and bars[1].id==2 and bars[2].id==1 and not cursor,'Placement failure rolls back already changed slots')
 combat=true;ok=pcall(AM.CaptureActionBars,AM);combat=false
@@ -136,6 +156,190 @@ runner.scripts.OnEvent(runner);AM.followupReload=true;runner.scripts.OnUpdate(ru
 check(AM.db.pendingActionBars~=nil,'Action bars wait for required fallback reload')
 AM.followupReload=nil;AM.db.pendingActionBars=nil
 -- Character addon selection and removed binding behavior.
+local header='# DO NOT EDIT - Dynamic macro managed by SmartTravel'
+local function managedFixture()
+    fixture()
+    macros={[1]={name='Help',body='/help'},[37]={name=' ',body=header..'\n/cast Travel Form'}}
+    bars[8]={kind='macro',id=37}
+    return AM:CaptureActionBars()
+end
+local managed=managedFixture()
+macros[37].body=header..'\n/cast Flying Mount';bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(managed)
+check(bars[8].id==37 and macros[37].body:find('Flying Mount',1,true),'Dynamic SmartTravel body restores without rewriting macro')
+macros[38]=macros[37];macros[37]=nil;bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(managed)
+check(bars[8].id==38,'Managed macro reordered to new character index still resolves')
+bars[8]={kind='macro',id=38};local changed,report=AM:ApplyActionBars(managed)
+check(changed==0 and #report==0,'Managed macro with changed body already in slot is unchanged')
+macros[37]={name=' ',body='/cast Unrelated'};bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(managed)
+check(bars[8].id==38,'Unrelated blank-named macro is not selected')
+macros[38]=nil;changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==38 and changed==0 and #report==1,'Missing managed macro does not place another macro')
+-- Use a readable ordinary destination so absence is reported for the target.
+bars[8]={kind='macro',id=1};changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==1 and #report==1,'Missing managed macro leaves readable destination untouched and reports skip')
+macros[38]={name=' ',body=header..'\n/cast Mount'}
+macros[39]={name=' ',body=header..'\n/cast Different Mount'}
+changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==1 and #report==1 and report[1]:find('Ambiguous macro',1,true),'Duplicate managed macros in one scope are skipped')
+bars[8]={kind='macro',id=38};changed,report=AM:ApplyActionBars(managed)
+check(changed==0 and #report==1,'Duplicate managed identity is reported even when slot already contains it')
+macros[39]=nil;macros[2]={name=' ',body=header..'\n/cast Account Mount'}
+bars[8]={kind='macro',id=1};AM:ApplyActionBars(managed)
+check(bars[8].id==38,'Account duplicate does not cross character macro scope')
+macros[38]=nil;bars[8]={kind='macro',id=1};changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==1 and #report==1,'Account macro cannot replace missing character managed macro')
+macros[38]={name=' ',body='/say '..header..'\n/cast Mount'}
+changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==1 and #report==1,'Ownership text embedded in executable body is not a managed marker')
+macros[38]={name=' ',body=header..' extra text\n/cast Mount'}
+changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==1 and #report==1,'Partial or suffixed ownership header is rejected')
+macros[38]={name=' ',body='# DO NOT EDIT - Managed by SmartTravel\n/cast Mount'}
+AM:ApplyActionBars(managed)
+check(bars[8].id==38,'Known SmartTravel legacy header resolves to same managed identity')
+local generic=managedFixture()
+macros[37].body='# DO NOT EDIT - Dynamic macro managed by OtherAddon\n/cast Original'
+generic=AM:CaptureActionBars();macros[37].body='# DO NOT EDIT - Dynamic macro managed by OtherAddon\n/cast Updated';bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(generic)
+check(bars[8].id==37,'Other addon using explicit dynamic ownership header is supported')
+macros[37].body='# SetupSwap-ManagedMacro: TravelAddon/ground\n/cast Original'
+generic=AM:CaptureActionBars();macros[37].body='# SetupSwap-ManagedMacro: TravelAddon/ground\n/cast Updated'
+macros[38]={name=' ',body='# SetupSwap-ManagedMacro: TravelAddon/flying\n/cast Other'};bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(generic)
+check(bars[8].id==37,'Explicit owner/key marker distinguishes multiple addon macros with same name')
+check(AM:RegisterManagedMacro('CustomAddon','travel','# CustomAddon travel macro'),'Addon can register an existing stable first-line comment')
+macros[37].body='# CustomAddon travel macro\n/cast Original';generic=AM:CaptureActionBars()
+macros[37].body='# CustomAddon travel macro\n/cast Updated';bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(generic)
+check(bars[8].id==37,'Registered addon macro restores despite body changes')
+check(not AM:RegisterManagedMacro('Unrelated','other','# CustomAddon travel macro'),'Conflicting registered ownership is refused')
+managed=managedFixture();macros[37].name='Renamed';bars[8]={kind='macro',id=1}
+changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==1 and #report==1,'Matching ownership marker does not override a different macro name')
+managed=managedFixture();macros[37].body='# DO NOT EDIT - Dynamic macro managed by Unrelated\n/cast Other';bars[8]={kind='macro',id=1}
+changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==1 and #report==1,'Different addon ownership does not match SmartTravel')
+managed=managedFixture();macros[37].body=header..'\r\n/cast CRLF';bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(managed)
+check(bars[8].id==37,'Exact ownership header supports CRLF macro bodies')
+managed=managedFixture();macros[2]={name=' ',body=macros[37].body};bars[8]={kind='macro',id=2}
+managed=AM:CaptureActionBars();macros[2].body=header..'\n/cast Account edited';bars[8]={kind='macro',id=1}
+AM:ApplyActionBars(managed)
+check(bars[8].id==2,'Managed account macro restoration does not use character counterpart')
+local _,boundaryError=AM:RegisterManagedMacro('Other','one','# Header\n/cast unsafe')
+check(boundaryError~=nil,'Multiline registration is refused')
+-- Verify late body updates and stale planned indices at the placement boundary.
+managed=managedFixture();bars[8]={kind='macro',id=1}
+local pickup=PickupMacro
+PickupMacro=function(index)
+    if index==37 then macros[37].body=header..'\n/cast Body changed during pickup' end
+    pickup(index)
+end
+AM:ApplyActionBars(managed);PickupMacro=pickup
+check(bars[8].id==37,'Placement verification tolerates managed body rewrite during pickup')
+managed=managedFixture();bars[1]={kind='spell',id=2};bars[8]={kind='macro',id=1}
+local placeOriginal=PlaceAction
+PlaceAction=function(slot)
+    placeOriginal(slot)
+    if slot==1 then macros[38]=macros[37];macros[37]={name='Other',body='/say wrong'} end
+end
+AM:ApplyActionBars(managed);PlaceAction=placeOriginal
+check(bars[8].id==38,'Macro index is re-resolved after another placement changes macro list')
+managed=managedFixture();bars[1]={kind='spell',id=2};bars[8]={kind='macro',id=1}
+PlaceAction=function(slot)
+    placeOriginal(slot)
+    if slot==1 then macros[38]={name=' ',body=header..'\n/cast duplicate'} end
+end
+ok,err=pcall(AM.ApplyActionBars,AM,managed);PlaceAction=placeOriginal
+check(not ok and bars[8].id==1 and bars[1].id==2,'Duplicate created after planning stops placement and rolls prior changes back')
+-- Ordinary macros retain their current edits through unique name/scope matching.
+managed=managedFixture();macros[37].body='/cast Original';managed=AM:CaptureActionBars()
+macros[37].body='/cast Edited';bars[8]={kind='macro',id=1};changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==37 and #report==0 and macros[37].body=='/cast Edited','Unmarked ordinary macro edits restore without recapturing or overwriting contents')
+macros[38]={name=' ',body='/cast Different'};bars[8]={kind='macro',id=1}
+changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==37 and #report==0,'Tracked ordinary macros with duplicate blank names remain distinct')
+macros[38]=nil;AM:SyncMacroIdentities();macros[37].name='Renamed';AM:AfterMacroEdit(37,'Renamed',nil,nil);changed,report=AM:ApplyActionBars(managed)
+check(bars[8].id==37 and #report==0,'Renamed tracked ordinary macro restores without resaving')
+managed=managedFixture();bars[8]={kind='spell',id=2};bars[9]={kind='spell',id=1}
+managed.slots[9]={kind='spell',name='Barkskin',rank='',spellID=200};failSlot=9
+ok,err=pcall(AM.ApplyActionBars,AM,managed)
+check(not ok and bars[8].kind=='spell' and bars[8].id==2 and bars[9].id==1,'Failure after managed macro placement rolls original bars back')
+managed=managedFixture();char='Mage';ok=pcall(AM.ApplyActionBars,AM,managed);char='Druid'
+check(not ok,'Managed macro snapshots retain character isolation')
+group=2;ok=pcall(AM.ApplyActionBars,AM,managed);group=1
+check(not ok,'Managed macro snapshots retain talent-spec isolation')
+managed=managedFixture();local second=AM:CopySettings(managed)
+second.slots[8]={kind='empty'};second.slots[9]=AM:CopySettings(managed.slots[8])
+for i=1,8 do
+    macros[37].body=header..'\n/cast Environment '..i
+    AM:ApplyActionBars(second);assert(bars[8]==nil and bars[9].id==37)
+    macros[37].body=header..'\n/cast Other environment '..i
+    AM:ApplyActionBars(managed);assert(bars[8].id==37 and bars[9]==nil)
+end
+check(true,'Repeated desktop/gamepad layouts restore managed macro in distinct slots with changing bodies')
+fixture();macros={[1]={name='Help',body='/help'},[37]={name='Help',body='/help'}}
+-- Native macro lifecycle tests: blank names and shared icons are irrelevant.
+macros={[1]={name=' ',body='/say Account'},[37]={name=' ',body='/cast First'},[38]={name=' ',body='/cast Second'}}
+AM.db.macroIdentities=nil
+bars={[1]={kind='macro',id=37},[2]={kind='macro',id=38},[3]={kind='macro',id=1}}
+local tracked=AM:CaptureActionBars()
+local firstToken,secondToken=tracked.slots[1].macroToken,tracked.slots[2].macroToken
+check(firstToken~=secondToken,'Blank-named ordinary macros with same icon receive separate tracking identities')
+EditMacro(37,nil,nil,'#showtooltip\n/cast Edited First')
+EditMacro(38,nil,nil,'#showtooltip\n/cast Edited Second')
+bars[1]={kind='macro',id=38};bars[2]={kind='macro',id=37}
+AM:ApplyActionBars(tracked)
+check(bars[1].id==37 and bars[2].id==38 and macros[37].body:find('Edited First',1,true),'Native EditMacro hooks preserve both blank-named macros without recapture')
+EditMacro(37,'Renamed',5,nil);bars[1]={kind='macro',id=38};AM:ApplyActionBars(tracked)
+check(bars[1].id==37 and macros[37].name=='Renamed','Native rename/icon edits preserve tracking identity')
+local persisted=AM:CopySettings(AM.db.macroIdentities)
+AM.db.macroIdentities=persisted;AM:SyncMacroIdentities()
+check(AM:ResolveMacroIdentity(firstToken,true)==37,'Tracking survives saved-variable roundtrip and ordinary reload scan')
+DeleteMacro(37)
+check(AM:ResolveMacroIdentity(firstToken,true)==nil and AM:ResolveMacroIdentity(secondToken,true)==37,'Deletion invalidates original token and follows surviving macro index shift')
+CreateMacro(' ',1,'/cast Replacement',true)
+bars[1]={kind='macro',id=37};bars[2]={kind='macro',id=38};bars[3]={kind='macro',id=1}
+changed,report=AM:ApplyActionBars(tracked)
+check(bars[1].id==37 and bars[2].id==37 and #report==1,'Deleted macro snapshot skips replacement while surviving blank macro restores')
+local lastToken=AM:MacroIdentityAt(38)
+DeleteMacro(38);CreateMacro(' ',1,'/cast Replacement',true)
+check(AM:MacroIdentityAt(38)~=lastToken,'Delete and recreate identical blank macro at same native index gets new identity')
+local still=AM:MacroIdentityAt(37);DeleteMacro(54)
+check(AM:MacroIdentityAt(37)==still,'Refused/no-op native deletion preserves existing identity')
+local accountToken=AM:MacroIdentityAt(1);char='Mage';AM:SyncMacroIdentities()
+check(AM:ResolveMacroIdentity(accountToken,false)==1 and not AM:ResolveMacroIdentity(secondToken,true),'Account tracking shared; character tracking isolated')
+char='Druid';AM:SyncMacroIdentities()
+check(AM:ResolveMacroIdentity(secondToken,true)==37,'Character tracking survives switching back to original character')
+local legacy=AM:CaptureActionBars();legacy.slots[2]=nil
+-- Complete legacy capture with no tokens is adopted only by unique contents.
+legacy=AM:CaptureActionBars();for _,e in pairs(legacy.slots) do e.macroToken=nil end
+AM.db.profiles.legacy={settings={actionBars={[legacy.context]=legacy}}}
+AM:AdoptLegacyMacroIdentities()
+check(legacy.slots[1].macroToken~=nil,'Existing uniquely identifiable macro captures adopt tracking identity')
+local owner,key=AM:ManagedMacroIdentity('#showtooltip\r\n'..header..'\r\n/cast Travel Form')
+check(owner=='SmartTravel' and key=='dynamic','SmartTravel marker beneath showtooltip in supplied cache is recognized')
+check(not AM:ManagedMacroIdentity('/cast Spell\n'..header),'Managed marker after executable commands is not recognized')
+check(not AM:ManagedMacroIdentity(header..'\n# SetupSwap-ManagedMacro: OtherAddon/key\n/cast Spell'),'Conflicting leading ownership markers are rejected')
+-- A legacy entry whose old body no longer exists is never guessed by blank name.
+local outdated=AM:CopySettings(legacy);outdated.slots[1].macroToken=nil;outdated.slots[1].body='/cast Old Missing Body'
+AM.db.profiles.outdated={settings={actionBars={[outdated.context]=outdated}}};AM:AdoptLegacyMacroIdentities()
+check(outdated.slots[1].macroToken==nil,'Unidentifiable legacy blank macro requires one recapture instead of guessing')
+bars={[1]={kind='macro',id=37},[8]={kind='macro',id=37},[61]={kind='macro',id=37},[74]={kind='macro',id=37}}
+local repeated=AM:CaptureActionBars()
+check(repeated.slots[1].macroToken==repeated.slots[8].macroToken and repeated.slots[61].macroToken==repeated.slots[74].macroToken,'One conditional macro can be captured in multiple bar positions')
+EditMacro(37,nil,nil,'#showtooltip\n/cast [form:1]Bear Action;[form:3]Cat Action;Caster Action')
+for _,slot in ipairs({1,8,61,74}) do bars[slot]={kind='macro',id=38} end
+AM:ApplyActionBars(repeated)
+check(bars[1].id==37 and bars[8].id==37 and bars[61].id==37 and bars[74].id==37,'Every placement restores the same edited conditional macro without duplicates')
+check(macros[37].body:find('[form:1]',1,true) and macros[37].body:find('[form:3]',1,true),'Conditional macro contents remain untouched')
+local beforeRename=AM:MacroIdentityAt(37);local otherRename=AM:MacroIdentityAt(38)
+macros[37],macros[38]=macros[38],{name='Renamed Sort Order',body='/cast Renamed And Reordered'}
+AM:AfterMacroEdit(37,'Renamed Sort Order',nil,'/cast Renamed And Reordered')
+check(AM:ResolveMacroIdentity(beforeRename,true)==38 and AM:ResolveMacroIdentity(otherRename,true)==37,'Rename-induced native reordering preserves both macro identities')
 local inventory={
     {name='SetupSwap',enabled=true,dependencies={}},
     {name='HealBot',enabled=false,dependencies={'Library'}},

@@ -2,12 +2,14 @@
 ## Title: SetupSwap
 ## Notes: Switch desktop, gamepad, and custom profiles with addon settings, layouts, ability assignments on action bars.
 ## Author: SuttonX
-## Version: 1.2.1
+## Version: 1.2.2
 ## OptionalDeps: !SetupSwapLoader
 ## SavedVariables: SetupSwapAccountDB
 ## SavedVariablesPerCharacter: SetupSwapDB
 Core.lua
 NativeState.lua
+ManagedMacros.lua
+MacroIdentity.lua
 ActionBars.lua
 Diagnostics.lua
 FrameLayouts.lua

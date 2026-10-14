@@ -118,7 +118,9 @@ For an issue report, include the SetupSwap version, affected addons, reproductio
 
 Addon settings capture includes selected addons that are loaded.  Open any desired load-on-demand modules before saving their settings.  Unsupported data, cyclic tables, and settings that cannot be discovered or serialized are reported rather than guaranteed to restore.  Ordinary SavedVariables may contain addon history or data as well as preferences.
 
-SetupSwap does not capture, restore, or save native WoW keybindings. Old SetupSwap keybinding snapshots are discarded without changing your current bindings. ConsolePortBindingSet and ConsolePortLoaderBinding are excluded from settings capture and from restoring older snapshots. Controller override bindings remain managed by their owning addons. Captured addon settings can still contain an addon's own binding configuration. Action-bar assignments are captured separately; existing macros are matched by name, contents, and account/character scope, without creating or editing macros.
+SetupSwap does not capture, restore, or save native WoW keybindings. Old SetupSwap keybinding snapshots are discarded without changing your current bindings. ConsolePortBindingSet and ConsolePortLoaderBinding are excluded from settings capture and from restoring older snapshots. Controller override bindings remain managed by their owning addons. Captured addon settings can still contain an addon's own binding configuration.
+
+Native macros receive SetupSwap tracking identities scoped to the account or current character. Blank names and identical icons are supported. Editing commands, names or icons while SetupSwap is enabled does not require resaving profile placements. Multiple bar slots can reference the same macro. Observed deletions invalidate the old identity; newly created macros get new identities. Macro contents are never restored or rewritten. Recognized addon-managed macros such as SmartTravel can also resolve by stable ownership markers when their bodies change.
 
 SetupSwap is a setup manager, not a filesystem backup.  Keep a backup of your WTF folder with WoW closed before making major configuration changes.
 
@@ -128,7 +130,7 @@ Arrange your abilities for ElvUI or Blizzard bars in your desktop profile, then 
 
 Each profile keeps a separate action-bar snapshot for each character and talent spec.  Save each spec separately.  Older profiles and character/spec combinations without a saved snapshot leave your bars unchanged.  Save settings again to add action bars to an existing profile.
 
-Unavailable spells, missing items, deleted or edited macros, and unsupported actions leave their destination slots unchanged and are reported in `/ss log`.  Spell ranks are matched exactly.  Pet, vehicle, and possession controls are excluded.  Save outside combat and vehicles, with nothing on the cursor.  `/ss undo` includes the action-bar backup for the current character/spec.
+Unavailable spells, missing items, deleted or unidentifiable macros, and unsupported actions leave their destination slots unchanged and are reported in `/ss log`.  Managed macros use a recognized stable ownership marker instead of exact dynamic body text. Ordinary macros retain their tracked identity and current contents, including when names are blank. Older captures without tracking information are adopted only by an unambiguous exact match, or can be recaptured once. Spell ranks are matched exactly.  Pet, vehicle, and possession controls are excluded.  Save outside combat and vehicles, with nothing on the cursor.  `/ss undo` includes the action-bar backup for the current character/spec.
 
 ## Related projects
 

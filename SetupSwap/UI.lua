@@ -294,7 +294,8 @@ function AM:BuildUI()
         GameTooltip:SetOwner(self,'ANCHOR_RIGHT'); GameTooltip:SetText('Restore saved settings when switching')
         GameTooltip:AddLine('Save profile stores the addon list only. Save settings & positions captures addon settings, positions, chat, and action-bar assignments. Unchecking this and saving removes this profile\'s settings snapshot.',1,1,1,true)
         GameTooltip:AddLine('Saving settings reloads once. Profile switches attempt one reload with the startup helper; a second reload is requested if early restoration is unavailable. /ss undo restores the last settings backup.',1,.82,0,true)
-        GameTooltip:AddLine('Action bars are saved separately for each character and talent spec. Missing or edited actions leave their slots unchanged; /ss log lists them.',1,1,1,true)
+        GameTooltip:AddLine('Action bars are saved separately for each character and talent spec. Missing or ambiguous actions leave their slots unchanged; /ss log lists them.',1,1,1,true)
+        GameTooltip:AddLine('Macros keep their current contents. Tracked ordinary macros support blank names and editing commands, names or icons without resaving. Keep SetupSwap enabled to track changes. Managed macros such as SmartTravel also check stable ownership.',1,1,1,true)
         local profile=AM.db.profiles[f.selected]
         local saved=profile and profile.settings
         if saved then
