@@ -345,7 +345,7 @@ function AM:LayoutUI()
     checkbox(f.includeSettings,f.includeLabel)
     checkbox(f.characterOnly,f.characterLabel)
     flow(f.scope,unit,checkSize+gap)
-    controls(f.captureControls,{f.barsOnly,f.saveSettings},{.5,.5},y)
+    controls(f.captureControls,{f.saveSettings,f.barsOnly},{.5,.5},y)
     y=y+buttonHeight+gap
     flow(f.legend)
 
