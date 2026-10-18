@@ -2,7 +2,7 @@
 ## Title: SetupSwap
 ## Notes: Switch desktop, gamepad, and custom profiles with addon settings, layouts, ability assignments on action bars.
 ## Author: SuttonX
-## Version: 1.2.3
+## Version: 1.2.4
 ## OptionalDeps: !SetupSwapLoader, ElvUI
 ## SavedVariables: SetupSwapAccountDB
 ## SavedVariablesPerCharacter: SetupSwapDB
@@ -15,6 +15,7 @@ Diagnostics.lua
 FrameLayouts.lua
 ChatLayouts.lua
 SettingsCatalog.lua
+SnapshotPolicy.lua
 Snapshots.lua
 AddonCopy.lua
 ElvUISkin.lua

@@ -17,9 +17,10 @@ for path in pathlib.Path('.').rglob('*.lua'):
         sys.exit(lib.lua_tolstring(state, -1, None).decode())
     lib.lua_close(state)
 print('All Lua files parsed.')
-checks = ['tests/actionbars.lua', 'tests/ui-layout.lua']
+checks = ['tests/actionbars.lua', 'tests/ui-layout.lua', 'tests/compatibility.lua', 'tests/single-reload.lua']
 if pathlib.Path('../tomtom-test-libs/AceDB-3.0.lua').exists():
     checks.append('tests/tomtom-real-acedb.lua')
+    checks.append('tests/icehud-real-acedb.lua')
 for check in checks:
     state = lib.luaL_newstate()
     lib.luaL_openlibs(state)

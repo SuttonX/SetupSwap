@@ -125,3 +125,45 @@ if file then
     assert(TomTomBlock.x==500 and TomTomBlock.y==100)
     print('PASS TomTom coordinate block retains its independent saved position')
 end
+
+-- Reproduce test5's photographed fallback using TomTom's actual AceDB library:
+-- early seed succeeds, but a later initializer selects another native profile.
+local repairSnapshot=AM:CopySettings(snapshot)
+repairSnapshot.variables[1].value.profile.arrow={arrival=42}
+AM.db.profiles.gamepad={settings=repairSnapshot,captureSettings=true}
+AM:ApplySettings(repairSnapshot,true,'gamepad',true)
+local rollback=AM.db.settingsBackup
+TomTom.db:SetProfile('Default');TomTom.waydb:SetProfile('Default')
+local otherCallbacks=0
+AM.startupSettingsCallbacks[#AM.startupSettingsCallbacks+1]={db={callbacks={Fire=function()
+    otherCallbacks=otherCallbacks+1
+    assert(TomTom.profile==TomTom.db.profile and TomTom.profile.persistence.cleardistance==10)
+    assert(TomTom.waypointprofile==TomTom.waydb.profile)
+end}},target='SetupSwap-gamepad'}
+AM.db.pendingSettings={kind='restore',name='gamepad',character=AM:CharacterKey(),earlyApplied=true,earlyCount=2}
+local reloads=0
+function AM:RequestFollowupReload() reloads=reloads+1 end
+AM:FinishSettingsOperation()
+assert(reloads==0 and AM.db.pendingSettings==nil)
+assert(TomTom.db:GetCurrentProfile()=='SetupSwap-gamepad' and TomTom.waydb:GetCurrentProfile()=='SetupSwap-gamepad')
+assert(TomTom.db.profile.arrow.arrival==42 and TomTom.profile.persistence.cleardistance==10)
+assert(AM.db.settingsBackup==rollback and otherCallbacks==1)
+assert(AM.db.lastStartupReconcile.count==2)
+print('PASS Installed TomTom AceDB reproduces late profile reselection and reconciles both native databases without a second reload')
+print('PASS Native cache defaults, snapshot values, original rollback backup and other startup callbacks survive reconciliation')
+assert(AM:ReconcileStartupProfiles(repairSnapshot,'gamepad')==0)
+print('PASS Correct TomTom native profiles do not need repeated reconciliation')
+
+-- The fix must not silently bypass an unavailable or unrelated native database.
+local missing={variables={{addon='TomTom',name='TomTomMissing',scope='SavedVariables',mode='ace',value={profile={}}}}}
+local priorDeclarations=AM.SettingsDeclarations
+function AM:SettingsDeclarations(addon)
+    local result=priorDeclarations(self,addon)
+    result[#result+1]={addon='TomTom',name='TomTomMissing',scope='SavedVariables'}
+    return result
+end
+local pending={kind='restore',name='missing',character=AM:CharacterKey(),earlyApplied=true}
+AM.db.profiles.missing={settings=missing};AM.db.pendingSettings=pending
+AM:FinishSettingsOperation()
+assert(reloads==0 and not pending.earlyApplied and pending.earlyFallback:find('TomTom',1,true))
+print('PASS An unavailable native database still retains the safety fallback rather than reporting a successful repair')

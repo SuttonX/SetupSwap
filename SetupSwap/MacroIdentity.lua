@@ -12,6 +12,17 @@ local function scan(first,last)
 end
 local function count(rows) local n=0;for _ in pairs(rows) do n=n+1 end;return n end
 local function equal(a,b) return a and b and a.name==b.name and a.body==b.body end
+function AM:HasSavedMacroScope(characterMacro)
+    for _,profile in pairs((self.db or SetupSwapAccountDB or {}).profiles or {}) do
+        local snapshot=self:SavedActionBars(profile.settings)
+        for _,entry in pairs(snapshot and snapshot.slots or {}) do
+            if entry.kind=='macro' and entry.characterMacro==characterMacro
+                and not ((self.db or SetupSwapAccountDB).macroIdentities and (self.db or SetupSwapAccountDB).macroIdentities.deleted
+                    and (self.db or SetupSwapAccountDB).macroIdentities.deleted[entry.macroToken]) then return true end
+        end
+    end
+    return false
+end
 function AM:SyncMacroIdentities()
     local db=self.db or SetupSwapAccountDB
     if not db then return end
@@ -21,64 +32,118 @@ function AM:SyncMacroIdentities()
     local maxAccount=MAX_ACCOUNT_MACROS or 36
     local scopes={{container=book,key='account',first=1,last=maxAccount},
         {container=book.characters,key=key(),first=maxAccount+1,last=maxAccount+(MAX_CHARACTER_MACROS or 18)}}
-    for _,scope in ipairs(scopes) do
+    self.macroScanStatus={}
+    local nativeAccount,nativeCharacter
+    if GetNumMacros then nativeAccount,nativeCharacter=GetNumMacros() end
+    for scopeIndex,scope in ipairs(scopes) do
         local old=scope.container[scope.key] or {}
         local current=scan(scope.first,scope.last)
-        local used={}
-        local sameSlots=count(old)==count(current)
-        if sameSlots then for index in pairs(old) do if not current[index] then sameSlots=false;break end end end
-        -- Keep native slot identity for unchanged lists, including identical
-        -- blank-named macros. After additions/deletions use unique fingerprints
-        -- to follow index shifts; ambiguous old duplicates are not guessed.
-        if sameSlots then
-            for index,row in pairs(current) do
-                if equal(old[index],row) then row.token=old[index].token;used[index]=true end
+        local nativeCount=scopeIndex==1 and nativeAccount or nativeCharacter
+        local ready=not (type(nativeCount)=='number' and nativeCount~=count(current))
+        if count(current)==0 and (count(old)>0 or self:HasSavedMacroScope(scopeIndex==2)) then ready=false end
+        self.macroScanStatus[scopeIndex==1 and 'account' or 'character']={ready=ready,count=count(current),native=nativeCount}
+        if ready then
+            local used={}
+            local sameSlots=count(old)==count(current)
+            if sameSlots then for index in pairs(old) do if not current[index] then sameSlots=false;break end end end
+            -- Keep native slot identity for unchanged lists, including identical
+            -- blank-named macros. After additions/deletions use unique fingerprints
+            -- to follow index shifts; ambiguous old duplicates are not guessed.
+            if sameSlots then
+                for index,row in pairs(current) do
+                    if equal(old[index],row) then row.token=old[index].token;used[index]=true end
+                end
             end
-        end
-        for index,row in pairs(current) do
-            if not row.token then
-                local match,ambiguous
-                for previous,entry in pairs(old) do
-                    if not used[previous] and equal(entry,row) then
-                        if match then ambiguous=true;break end
-                        match=previous
+            for index,row in pairs(current) do
+                if not row.token then
+                    local match,ambiguous
+                    for previous,entry in pairs(old) do
+                        if not used[previous] and equal(entry,row) then
+                            if match then ambiguous=true;break end
+                            match=previous
+                        end
+                    end
+                    local newMatches=0
+                    for _,other in pairs(current) do if not other.token and equal(row,other) then newMatches=newMatches+1 end end
+                    if match and not ambiguous and newMatches==1 then
+                        row.token=old[match].token;used[match]=true
                     end
                 end
-                local newMatches=0
-                for _,other in pairs(current) do if not other.token and equal(row,other) then newMatches=newMatches+1 end end
-                if match and not ambiguous and newMatches==1 then
-                    row.token=old[match].token;used[match]=true
+            end
+            -- Edits retain their native slot. This includes changing commands,
+            -- name and icon. Observed DeleteMacro invalidates its slot first, so a
+            -- later CreateMacro cannot inherit the deleted macro's identity.
+            if sameSlots then
+                for index,row in pairs(current) do
+                    if not row.token and old[index] and not used[index] then
+                        row.token=old[index].token;used[index]=true
+                    end
                 end
             end
-        end
-        -- Edits retain their native slot. This includes changing commands,
-        -- name and icon. Observed DeleteMacro invalidates its slot first, so a
-        -- later CreateMacro cannot inherit the deleted macro's identity.
-        if sameSlots then
-            for index,row in pairs(current) do
-                if not row.token and old[index] and not used[index] then
-                    row.token=old[index].token;used[index]=true
+            for _,row in pairs(current) do
+                if not row.token then
+                    db.macroIdentitySerial=(tonumber(db.macroIdentitySerial) or 0)+1
+                    row.token='m'..db.macroIdentitySerial
                 end
             end
-        end
-        for _,row in pairs(current) do
-            if not row.token then
-                db.macroIdentitySerial=(tonumber(db.macroIdentitySerial) or 0)+1
-                row.token='m'..db.macroIdentitySerial
+            -- Recover a lost registry only by a unique saved name/body/scope match.
+            -- Two saved identities competing for the same macro are left unresolved.
+            local present,claims,plans={},{},{}
+            for _,row in pairs(old) do if row.token then present[row.token]=true end end
+            for _,profile in pairs(db.profiles or {}) do
+                local snapshot=self:SavedActionBars(profile.settings)
+                for _,entry in pairs(snapshot and snapshot.slots or {}) do
+                    if entry.kind=='macro' and entry.characterMacro==(scopeIndex==2) and entry.macroToken
+                        and not present[entry.macroToken] and not (book.deleted and book.deleted[entry.macroToken])
+                        and not self:ManagedMacroIdentity(entry.body) then
+                        local match,ambiguous
+                        for index,row in pairs(current) do
+                            if equal(entry,row) then if match then ambiguous=true;break end;match=index end
+                        end
+                        if match and not ambiguous and not present[current[match].token] then
+                            local token=entry.macroToken
+                            if plans[token] and plans[token]~=match then plans[token]=false
+                            elseif plans[token]==nil then plans[token]=match end
+                            claims[match]=claims[match] or {}
+                            claims[match][token]=true
+                        end
+                    end
+                end
             end
+            for token,index in pairs(plans) do
+                if index then
+                    local n=0;for _ in pairs(claims[index]) do n=n+1 end
+                    if n==1 then current[index].token=token end
+                end
+            end
+            scope.container[scope.key]=current
         end
-        scope.container[scope.key]=current
     end
     return book
 end
 function AM:MacroIdentityAt(index)
     local book=self:SyncMacroIdentities()
     if not book then return end
-    local rows=index>(MAX_ACCOUNT_MACROS or 36) and book.characters[key()] or book.account
+    local characterMacro=index>(MAX_ACCOUNT_MACROS or 36)
+    local status=self.macroScanStatus and self.macroScanStatus[characterMacro and 'character' or 'account']
+    if status and not status.ready then return end
+    local rows=characterMacro and book.characters[key()] or book.account
     return rows and rows[index] and rows[index].token
+end
+function AM:SnapshotMacrosReady(snapshot)
+    self:SyncMacroIdentities()
+    for _,entry in pairs(snapshot and snapshot.slots or {}) do
+        if entry.kind=='macro' then
+            local state=self.macroScanStatus[entry.characterMacro and 'character' or 'account']
+            if state and not state.ready then return false end
+        end
+    end
+    return true
 end
 function AM:ResolveMacroIdentity(token,characterMacro)
     local book=self:SyncMacroIdentities()
+    local status=self.macroScanStatus and self.macroScanStatus[characterMacro and 'character' or 'account']
+    if status and not status.ready then return nil,'Native macros unavailable; saved identity retained' end
     local rows=book and (characterMacro and book.characters[key()] or book.account)
     local found
     for index,row in pairs(rows or {}) do
@@ -107,7 +172,15 @@ function AM:ForgetDeletedMacro(index)
         local first=index>(MAX_ACCOUNT_MACROS or 36) and (MAX_ACCOUNT_MACROS or 36)+1 or 1
         local last=index>(MAX_ACCOUNT_MACROS or 36) and (MAX_ACCOUNT_MACROS or 36)+(MAX_CHARACTER_MACROS or 18) or (MAX_ACCOUNT_MACROS or 36)
         -- A refused/no-op deletion must not invalidate a live macro.
-        if rows and count(scan(first,last))<count(rows) then rows[index]=nil end
+        local scanned=scan(first,last)
+        local a,c;if GetNumMacros then a,c=GetNumMacros() end
+        local expected=index>(MAX_ACCOUNT_MACROS or 36) and c or a
+        if rows and (expected==nil or expected==count(scanned)) and count(scanned)==count(rows)-1 then
+            if rows[index] and rows[index].token then
+                book.deleted=book.deleted or {};book.deleted[rows[index].token]=true
+            end
+            rows[index]=nil
+        end
     end
 end
 function AM:AfterMacroEdit(index,name,icon,body)

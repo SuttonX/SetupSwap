@@ -43,6 +43,9 @@ function AM:CopySettings(value,budget)
     return result
 end
 function AM:SettingsDeclarations(addon)
+    -- Error collection is session/account diagnostic state, not a UI layout.
+    -- Leave its live database untouched, including snapshots captured by older builds.
+    if addon=='!BugGrabber' then return {} end
     local list,seen={},{}
     local excludedBindings={ConsolePortBindingSet=true,ConsolePortLoaderBinding=true}
     local function add(name,scope)
@@ -82,6 +85,15 @@ function AM:SettingsDeclarations(addon)
     end
     return list
 end
+-- Use one eligibility check for early load-order checks, restoration and
+-- post-startup verification. Obsolete/excluded snapshots must not force reloads.
+function AM:CanRestoreSettingsItem(item,inventory)
+    if item.addon==self.name or not inventory[item.addon] or not IsAddOnLoaded(item.addon) then return false end
+    for _,declaration in ipairs(self:SettingsDeclarations(item.addon)) do
+        if declaration.name==item.name and declaration.scope==item.scope then return true end
+    end
+    return false
+end
 function AM:AceDatabase(variable)
     if not LibStub then return end
     local ok,lib=pcall(function() return LibStub('AceDB-3.0',true) end)
@@ -90,10 +102,10 @@ function AM:AceDatabase(variable)
         if db.sv==_G[variable] and type(db.GetCurrentProfile)=='function' and type(db.SetProfile)=='function' then return db end
     end
 end
-function AM:AceSnapshot(db,budget)
+function AM:AceSnapshot(db,budget,variable)
     local result={profile=self:CopySettings(db.profile,budget),namespaces={},scopes={}}
     for _,scope in ipairs({'char','global','realm','faction','factionrealm'}) do
-        if type(db[scope])=='table' then result.scopes[scope]=self:CopySettings(db[scope],budget) end
+        if type(db[scope])=='table' then result.scopes[scope]=self:CopySettings(self.SettingsScopeView and self:SettingsScopeView(variable,scope,db[scope]) or db[scope],budget) end
     end
     for name,child in pairs(db.children or {}) do
         result.namespaces[name]=self:CopySettings(child.profile,budget)
@@ -105,19 +117,20 @@ function AM:AceSnapshot(db,budget)
     end
     return result
 end
-local function inject(destination,source)
-    local pending={{destination=destination,source=source}}
+local function inject(destination,source,variable,path)
+    local pending={{destination=destination,source=source,path=path or ''}}
     while #pending>0 do
         local current=pending[#pending]
         pending[#pending]=nil
+        local preserve=AM.PreserveSettingsKeys and AM:PreserveSettingsKeys(variable,current.path)
         for key in pairs(current.destination) do
-            if current.source[key]==nil then rawset(current.destination,key,nil) end
+            if current.source[key]==nil and not (preserve and preserve[key]) then rawset(current.destination,key,nil) end
         end
         for key,value in pairs(current.source) do
             if type(value)=='table' then
                 local child=rawget(current.destination,key)
                 if type(child)~='table' then child={};rawset(current.destination,key,child) end
-                pending[#pending+1]={destination=child,source=value}
+                pending[#pending+1]={destination=child,source=value,path=current.path=='' and tostring(key) or (current.path..'/'..tostring(key))}
             else rawset(current.destination,key,value) end
         end
     end
@@ -136,7 +149,8 @@ function AM:CaptureSettings(profile)
                         local db=self:AceDatabase(declaration.name)
                         local ok,result
                         local budget={nodes=0,bytes=0}
-                        if db then ok,result=pcall(self.AceSnapshot,self,db,budget)
+                        if db then ok,result=pcall(self.AceSnapshot,self,db,budget,declaration.name)
+                        elseif self.CopyVariableSettings then ok,result=pcall(self.CopyVariableSettings,self,declaration.name,value,budget)
                         else ok,result=pcall(self.CopySettings,self,value,budget) end
                         if ok then
                             declaration.present=value~=nil; declaration.value=result; declaration.mode=db and 'ace' or 'flat'
@@ -181,30 +195,46 @@ function AM:PrepareSettingsSwitch(name)
     end
     return false
 end
--- The helper registers its login handler before target addons. All addon files
--- and ADDON_LOADED handlers have completed by this point, so their saved globals
--- exist. AceDB objects that are created at PLAYER_LOGIN are seeded through their
--- native saved tables before that initialization runs.
+-- Observe addon loading until the snapshot owners are ready, then seed their
+-- settings before PLAYER_LOGIN even if the helper loaded after them.
 function AM:TryEarlySettingsRestore(loader)
     local db=SetupSwapAccountDB
     local pending=type(db)=='table' and db.pendingSettings
     if not pending or pending.kind~='restore' or not pending.early then return false end
+    if pending.earlyApplied then return true end
     if pending.character~=identity() or InCombatLockdown() then return false end
+    self.db=db
+    if self.CheckPendingAddonSwitch and not self:CheckPendingAddonSwitch() then return false end
+    if self.CompactSnapshots then self:CompactSnapshots(db) end
     local profile=type(db.profiles)=='table' and db.profiles[pending.name]
     local snapshot=profile and profile.settings
     if not snapshot then return false end
-    -- An earlier addon can already have registered its login handler. Preserve
-    -- the old path rather than claiming that its initialization was intercepted.
-    for _,item in ipairs(snapshot.variables or {}) do
-        if loader.alreadyLoaded[item.addon] then
-            pending.earlyFallback='Startup helper loaded after '..tostring(item.addon)
-            return false
+    local _,inventory=self:Inventory()
+    if loader.beforeLogin and not loader.loginStarted then
+        -- Wait for every selected, loadable, non-demand snapshot owner.
+        if not IsAddOnLoadOnDemand then return false end
+        for _,item in ipairs(snapshot.variables or {}) do
+            local entry=inventory[item.addon]
+            if item.addon~='!BugGrabber' and item.addon~=self.name and entry and entry.enabled
+                and entry.loadable and entry.loadable~=0 and not IsAddOnLoaded(item.addon)
+                and not IsAddOnLoadOnDemand(item.addon) then return false end
+        end
+    else
+        -- Keep the old fallback if a pre-login restore was unavailable.
+        for _,item in ipairs(snapshot.variables or {}) do
+            if loader.alreadyLoaded[item.addon] and self:CanRestoreSettingsItem(item,inventory) then
+                pending.earlyFallback='Startup helper loaded after '..tostring(item.addon)
+                return false
+            end
         end
     end
     self.db=db
     self.operationContext='Early settings restore for '..tostring(pending.name)
     local previousBackup=db.settingsBackup
+    loader.restoreAttempted=true
+    self.preLoginSettingsRestore=loader.beforeLogin and not loader.loginStarted or false
     local ok,count=pcall(self.ApplySettings,self,snapshot,true,pending.name,true)
+    self.preLoginSettingsRestore=nil
     pending.earlyBackupAvailable=db.settingsBackup~=previousBackup
     self.operationContext=nil
     if not ok then
@@ -222,7 +252,7 @@ end
 -- AceDB stores an uninitialized database as an ordinary SavedVariables table.
 -- Seed that native structure when an addon creates its AceDB object at login.
 -- Preserve other native profiles/characters; apply scopes for the current user.
-function AM:PrepareRawAceSettings(value,target,current)
+function AM:PrepareRawAceSettings(value,target,current,variable)
     if type(value)~='table' or type(value.profile)~='table' then error('Invalid native settings snapshot') end
     if current~=nil and type(current)~='table' then error('Invalid native SavedVariables table') end
     local result=self:CopySettings(current or {})
@@ -234,7 +264,11 @@ function AM:PrepareRawAceSettings(value,target,current)
         destination.profiles=destination.profiles or {}
         destination.profiles[target]=self:CopySettings(profile)
         for scope,settings in pairs(scopes or {}) do
-            if scope=='global' then destination.global=self:CopySettings(settings)
+            if scope=='global' then
+                local result=self:CopySettings(settings)
+                local preserve=self.PreserveSettingsKeys and self:PreserveSettingsKeys(variable,'global')
+                for key in pairs(preserve or {}) do if destination.global and destination.global[key]~=nil then result[key]=destination.global[key] end end
+                destination.global=result
             elseif keys[scope] then
                 destination[scope]=destination[scope] or {}
                 destination[scope][keys[scope]]=self:CopySettings(settings)
@@ -302,9 +336,20 @@ function AM:ReconnectNativeProfileCache(db)
     -- defaults from the old profile during SetProfile, so the old reference can
     -- lack persistence before the deferred ReloadOptions callback runs.
     local tomtom=_G.TomTom
-    if type(tomtom)~='table' then return end
-    if tomtom.db==db then tomtom.profile=db.profile end
-    if tomtom.waydb==db then tomtom.waypointprofile=db.profile end
+    if type(tomtom)=='table' then
+        if tomtom.db==db then tomtom.profile=db.profile end
+        if tomtom.waydb==db then tomtom.waypointprofile=db.profile end
+    end
+    -- IceHUD binds the active profile and each module's settings during its
+    -- initialization. A silent AceDB profile change strips defaults from the
+    -- old tables, so those cached modules can lose scale before OnEnable.
+    local icehud=_G.IceHUD
+    local core=type(icehud)=='table' and icehud.IceCore
+    if type(icehud)=='table' and icehud.db==db and type(core)=='table' and type(core.SetModuleDatabases)=='function' then
+        core.settings=db.profile
+        core.accountSettings=db.global
+        core:SetModuleDatabases()
+    end
 end
 function AM:RefreshStartupSettings()
     local pending=self.startupSettingsCallbacks or {}
@@ -327,7 +372,15 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
     local actionBars=self:SavedActionBars(snapshot)
     if actionBars then self:ValidateActionBars(actionBars) end
     if makeBackup and actionBars then
-        backup.actionBars={[self:ActionBarContext()]=self:CopySettings(self.db.pendingActionBarBackup or self:CaptureActionBars())}
+        if self.preLoginSettingsRestore then
+            -- Switch already captured rollback bars before ReloadUI. Do not
+            -- query native macros earlier to create another backup.
+            if self.db.pendingActionBarBackup then
+                backup.actionBars={[self:ActionBarContext()]=self:CopySettings(self.db.pendingActionBarBackup)}
+            end
+        elseif not self.SnapshotMacrosReady or self:SnapshotMacrosReady(actionBars) then
+            backup.actionBars={[self:ActionBarContext()]=self:CopySettings(self.db.pendingActionBarBackup or self:CaptureActionBars())}
+        end
     end
     if makeBackup and self.CaptureFrameLayouts and snapshot.layouts then
         local selection={addons={}}
@@ -339,13 +392,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
     local _,inventory=self:Inventory()
     -- Validate and copy everything before touching any other addon's globals.
     for _,item in ipairs(snapshot.variables or {}) do
-        local allowed=false
-        if item.addon~=self.name and inventory[item.addon] and IsAddOnLoaded(item.addon) then
-            for _,declaration in ipairs(self:SettingsDeclarations(item.addon)) do
-                if declaration.name==item.name and declaration.scope==item.scope then allowed=true; break end
-            end
-        end
-        if allowed then
+        if self:CanRestoreSettingsItem(item,inventory) then
             if item.mode=='ace' then
                 validateAceSnapshot(item.value)
                 if item.restoreProfile~=nil and type(item.restoreProfile)~='string' then error('Invalid native restore profile name') end
@@ -355,14 +402,14 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
             if item.mode~='ace' or db or early then
                 local target=item.restoreProfile or ('SetupSwap-'..tostring(profileName or 'restored'))
                 local rawAce=item.mode=='ace' and not db
-                local value=rawAce and self:PrepareRawAceSettings(item.value,target,_G[item.name]) or self:CopySettings(item.value)
+                local value=rawAce and self:PrepareRawAceSettings(item.value,target,_G[item.name],item.name) or self:CopySettings(item.value)
                 assignments[#assignments+1]={name=item.name,value=value,
                     db=db,target=target,rawAce=rawAce}
 
                 if makeBackup then
                     backup.variables[#backup.variables+1]={addon=item.addon,name=item.name,scope=item.scope,
                         mode=db and 'ace' or 'flat',restoreProfile=db and db:GetCurrentProfile() or nil,
-                        present=_G[item.name]~=nil,value=db and self:AceSnapshot(db) or self:CopySettings(_G[item.name])}
+                        present=_G[item.name]~=nil,value=db and self:AceSnapshot(db,nil,item.name) or (self.CopyVariableSettings and self:CopyVariableSettings(item.name,_G[item.name]) or self:CopySettings(_G[item.name]))}
                 end
             end
         end
@@ -378,7 +425,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
                 end
                 inject(item.db.profile,item.value.profile)
                 for scope,values in pairs(item.value.scopes or {}) do
-                    if type(item.db[scope])=='table' then inject(item.db[scope],values) end
+                    if type(item.db[scope])=='table' then inject(item.db[scope],values,item.name,scope) end
                 end
                 for name,values in pairs(item.value.namespaces or {}) do
                     local child=item.db.children and item.db.children[name]
@@ -393,9 +440,12 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
                 -- Older captures can lack keys introduced by an addon update.
                 -- Restore AceDB's defaults and nested default metatables after injection.
                 if item.db.defaults and type(item.db.RegisterDefaults)=='function' then item.db:RegisterDefaults(item.db.defaults) end
+                -- Injection can remove modules absent from older captures;
+                -- rebind again after defaults recreate their native tables.
+                if not logout then self:ReconnectNativeProfileCache(item.db) end
                 if not logout and not early and item.db.callbacks then item.db.callbacks:Fire('OnProfileChanged',item.db,item.target) end
             elseif type(_G[item.name])=='table' and type(item.value)=='table' then
-                inject(_G[item.name],item.value)
+                inject(_G[item.name],item.value,item.name)
             else _G[item.name]=AM:CopySettings(item.value) end
         end
     end
@@ -437,6 +487,53 @@ function AM:UndoSettings()
     self:Print('Loading the settings backup; this may require two reloads.')
     ReloadUI(); return true
 end
+-- TomTom can create/reselect its native databases after the early seed. Its
+-- registered profile callbacks support applying these settings to live UI.
+-- Repair only these known native databases; other readiness failures retain
+-- the established fallback. Never replace the original rollback backup.
+function AM:ReconcileStartupProfiles(snapshot,profileName)
+    local _,inventory=self:Inventory()
+    local repair={}
+    for _,item in ipairs(snapshot and snapshot.variables or {}) do
+        if item.mode=='ace' and self:CanRestoreSettingsItem(item,inventory) then
+            local db=self:AceDatabase(item.name)
+            local target=item.restoreProfile or ('SetupSwap-'..tostring(profileName))
+            local ok,current=false,nil
+            if db then ok,current=pcall(db.GetCurrentProfile,db) end
+            if not ok or current~=target then
+                local tomtom=_G.TomTom
+                if item.addon~='TomTom' or type(tomtom)~='table' or not db
+                    or (db~=tomtom.db and db~=tomtom.waydb) then
+                    error('Native settings did not initialize with the saved profile for '..tostring(item.addon))
+                end
+                repair[#repair+1]=item
+            end
+        end
+    end
+    if #repair==0 then return 0 end
+    local previous=self.startupSettingsCallbacks or {}
+    -- Native settings only: no bars, chat or frame positions are captured or
+    -- changed here, and makeBackup=false preserves the pre-switch rollback.
+    self:ApplySettings({version=1,variables=repair},false,profileName,true)
+    local callbacks=self.startupSettingsCallbacks or {}
+    local seen={}
+    for _,item in ipairs(callbacks) do seen[item.db]=true end
+    for _,item in ipairs(previous) do
+        if not seen[item.db] then callbacks[#callbacks+1]=item;seen[item.db]=true end
+    end
+    self.startupSettingsCallbacks=callbacks
+    -- SetProfile ran silently. Reconnect both TomTom caches before any consumer
+    -- can run, then let RefreshStartupSettings issue the native callbacks.
+    for _,item in ipairs(callbacks) do self:ReconnectNativeProfileCache(item.db) end
+    for _,item in ipairs(repair) do
+        local db=self:AceDatabase(item.name)
+        local target=item.restoreProfile or ('SetupSwap-'..tostring(profileName))
+        if not db or db:GetCurrentProfile()~=target then error('TomTom native profile reconciliation failed') end
+    end
+    self.db.lastStartupReconcile={name=profileName,count=#repair,addon='TomTom'}
+    return #repair
+end
+
 function AM:FinishSettingsOperation()
     local pending=self.db.pendingSettings
     if not pending then return end
@@ -470,10 +567,15 @@ function AM:FinishSettingsOperation()
         end
     elseif pending.kind=='restore' or pending.kind=='undo' then
         if pending.kind=='restore' and pending.earlyApplied then
-            -- Confirm that late-created native databases actually selected the
-            -- seeded profile. If startup replaced it, retain the old fallback.
+            local repaired,why=pcall(self.ReconcileStartupProfiles,self,profile and profile.settings,pending.name)
+            if not repaired then
+                pending.earlyApplied=nil
+                pending.earlyFallback=tostring(why)
+            end
+            -- Verify every native database after the targeted reconciliation.
+            local _,inventory=self:Inventory()
             for _,item in ipairs((profile and profile.settings and profile.settings.variables) or {}) do
-                if item.mode=='ace' and IsAddOnLoaded(item.addon) then
+                if pending.earlyApplied and item.mode=='ace' and self:CanRestoreSettingsItem(item,inventory) then
                     local db=self:AceDatabase(item.name)
                     local target=item.restoreProfile or ('SetupSwap-'..tostring(pending.name))
                     local ok,current=false,nil

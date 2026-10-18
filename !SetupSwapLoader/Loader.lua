@@ -1,6 +1,7 @@
 -- No SavedVariables here: the existing SetupSwap account database stays in its
--- original file. Register before addon login handlers, then use the fully loaded
--- SetupSwap implementation at PLAYER_LOGIN. Never restore on an ordinary login.
+-- original file. Restore a queued switch once all required saved settings have
+-- loaded, before PLAYER_LOGIN handlers initialize the target UI. Never restore
+-- on an ordinary login.
 SetupSwapEarlyLoader = {alreadyLoaded={}}
 local loader=SetupSwapEarlyLoader
 -- Observe mask changes before ElvUI initializes, rather than guessing the
@@ -15,11 +16,19 @@ for i=1,GetNumAddOns() do
     if name and IsAddOnLoaded(name) then loader.alreadyLoaded[name]=true end
 end
 local frame=CreateFrame('Frame')
+frame:RegisterEvent('ADDON_LOADED')
 frame:RegisterEvent('PLAYER_LOGIN')
-frame:SetScript('OnEvent',function(self)
-    self:UnregisterEvent('PLAYER_LOGIN')
-    loader.loginStarted=true
-    if SetupSwap and SetupSwap.TryEarlySettingsRestore then
+frame:SetScript('OnEvent',function(self,event)
+    if event=='PLAYER_LOGIN' then
+        self:UnregisterEvent('PLAYER_LOGIN')
+        self:UnregisterEvent('ADDON_LOADED')
+        loader.loginStarted=true
+        loader.beforeLogin=false
+    elseif event=='ADDON_LOADED' then
+        if loader.loginStarted then return end
+        loader.beforeLogin=true
+    else return end
+    if not loader.restoreAttempted and SetupSwap and SetupSwap.TryEarlySettingsRestore then
         SetupSwap:TryEarlySettingsRestore(loader)
     end
 end)

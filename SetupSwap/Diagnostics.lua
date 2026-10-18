@@ -14,6 +14,22 @@ function AM:DiagnosticsText()
         if item.stack then line(item.stack) end
     end
     line('SetupSwap version: '..tostring(GetAddOnMetadata and GetAddOnMetadata(self.name,'Version') or 'unknown'))
+    local cleanup=self.db and self.db.snapshotCleanup
+    if cleanup then line('Snapshot cache cleanup: fields='..tostring(cleanup.fields)..'; raw bytes removed='..tostring(cleanup.bytes)) end
+    if GetNumMacros then
+        local account,character=GetNumMacros()
+        line('Native macro counts: account='..tostring(account)..'; character='..tostring(character))
+    end
+    if self.macroScanStatus then
+        for scope,status in pairs(self.macroScanStatus) do line('Macro scan '..scope..': ready='..tostring(status.ready)..'; readable='..tostring(status.count)) end
+    end
+    local switch=self.db and self.db.lastAddonSwitch
+    if switch then line('Addon switch '..tostring(switch.name)..': '..tostring(switch.phase)..'; mismatches='..table.concat(switch.mismatches or {},', ')) end
+    for _,entry in ipairs(self:Inventory()) do
+        if entry.name=='TomTom' or entry.name=='IceHUD' or entry.name=='Questie-335' or entry.name=='ElvUI' or entry.name=='ConsolePort' then
+            line('Addon '..entry.name..': enabled='..tostring(entry.enabled)..'; loaded='..tostring(IsAddOnLoaded(entry.name))..'; reason='..tostring(entry.reason))
+        end
+    end
     line('Options window ElvUI skin: '..tostring(self.ui and self.ui.elvUISkinned or false))
     if self.elvUISkinError then line('ElvUI skin error: '..self.elvUISkinError) end
     line('Startup native refresh callbacks: '..tostring(self.db and self.db.lastStartupRefresh or 'none'))
@@ -36,6 +52,8 @@ function AM:DiagnosticsText()
             line('TomTom live arrow anchor: '..tostring(point)..'; '..tostring(relative and relative.GetName and relative:GetName())..'; '..tostring(rel)..'; x='..tostring(x)..'; y='..tostring(y))
         end
     end
+    local reconciled=self.db and self.db.lastStartupReconcile
+    if reconciled then line('TomTom startup profile reconciliation: '..tostring(reconciled.name)..'; databases='..tostring(reconciled.count)) end
     local mode=self.db and self.db.lastRestoreMode
     if mode then line('Last settings restore: '..tostring(mode.name)..'; '..tostring(mode.mode)..(mode.reason and ('; '..mode.reason) or '')..(mode.seeded and ('; seeded native databases='..mode.seeded) or '')) end
     local windows=self.db and self.db.lastWindowRestore

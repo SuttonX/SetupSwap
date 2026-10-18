@@ -85,6 +85,7 @@ local function resolve(e)
         if GetItemCount(e.id)>0 then return e.id end
         return nil,'Item not in inventory'
     elseif e.kind=='macro' then
+        if AM.SnapshotMacrosReady and not AM:SnapshotMacrosReady({slots={e}}) then return nil,'Native macros unavailable; saved identity retained' end
         if e.macroToken and not AM:ManagedMacroIdentity(e.body) then return AM:ResolveMacroIdentity(e.macroToken,e.characterMacro) end
         local match
         local start=e.characterMacro and (MAX_ACCOUNT_MACROS or 36)+1 or 1
@@ -194,6 +195,10 @@ function AM:SaveActionBarsOnly(name)
     if self.db.active~=name or not self:ProfileMatchesEnabled(name) then
         self:Print('Switch to '..name..' before saving its action bars.');return false
     end
+    local existing=self:SavedActionBars(profile.settings)
+    if existing and self.SnapshotMacrosReady and not self:SnapshotMacrosReady(existing) then
+        self:Print('Native macros are not available yet. Saved bars/macros were kept; nothing captured.');return false
+    end
     local ok,bars=pcall(self.CaptureActionBars,self)
     if not ok then self:Print('Action-bar capture stopped: '..tostring(bars));return false end
     profile.settings=profile.settings or {version=1,variables={}}
@@ -213,6 +218,10 @@ local function update(frame,delta)
         AM:Print('Action-bar restore canceled: character or talent spec changed.');return
     end
     if InCombatLockdown() or temporaryBar() or GetCursorInfo() or AM.db.pendingSettings or AM.followupReload then return end
+    if AM.SnapshotMacrosReady and not AM:SnapshotMacrosReady(pending.value) then
+        frame.macroWait=(frame.macroWait or 0)+delta
+        if frame.macroWait<8 then return end
+    end
     frame.elapsed=(frame.elapsed or 0)+delta
     if frame.elapsed<1 then return end
     AM.db.pendingActionBars=nil;frame:SetScript('OnUpdate',nil)
@@ -228,7 +237,7 @@ function AM:StageActionBars(snapshot,name)
     if not value then return end -- Older profiles/unsaved characters keep bars.
     self:ValidateActionBars(value)
     self.db.pendingActionBars={value=self:CopySettings(value),name=name}
-    runner.elapsed=0;runner:SetScript('OnUpdate',update)
+    runner.elapsed=0;runner.macroWait=0;runner:SetScript('OnUpdate',update)
 end
 runner:RegisterEvent('PLAYER_LOGIN')
 runner:SetScript('OnEvent',function(frame)

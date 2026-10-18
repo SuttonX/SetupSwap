@@ -25,7 +25,7 @@ function AM:Inventory()
     for i = 1, GetNumAddOns() do
         local name, title, notes, enabled, loadable, reason = GetAddOnInfo(i)
         if name and name~='!SetupSwapLoader' then
-            local entry = {name=name, title=title or name, notes=notes, enabled=on(enabled),
+            local entry = {name=name, index=i, title=title or name, notes=notes, enabled=on(enabled),
                 loadable=loadable, reason=reason, dependencies={GetAddOnDependencies(i)}}
             list[#list+1] = entry; byName[name] = entry
         end
@@ -157,6 +157,38 @@ function AM:SetSelection(name, addon, enabled, draft)
     profile.addons[self.name] = true
     return true
 end
+function AM:ApplyAddonSelection(target)
+    for _,entry in ipairs(self:Inventory()) do
+        if entry.name~=self.name and target[entry.name]~=nil and target[entry.name]~=entry.enabled then
+            local operation=target[entry.name] and EnableAddOn or DisableAddOn
+            pcall(operation,entry.index or entry.name)
+        end
+    end
+    local mismatches={}
+    for _,entry in ipairs(self:Inventory()) do
+        if target[entry.name]~=nil and entry.enabled~=target[entry.name] then mismatches[#mismatches+1]=entry.name end
+    end
+    return mismatches
+end
+function AM:CheckPendingAddonSwitch()
+    local pending=self.db and self.db.pendingAddonSwitch
+    if not pending then return true end
+    self.db.pendingAddonSwitch=nil
+    local mismatches={}
+    if type(pending.target)~='table' then pending.target={};mismatches[1]='Invalid saved switch request' end
+    for _,entry in ipairs(self:Inventory()) do
+        if pending.target[entry.name]~=nil and entry.enabled~=pending.target[entry.name] then mismatches[#mismatches+1]=entry.name end
+    end
+    self.db.lastAddonSwitch={name=pending.name,phase='after reload',mismatches=mismatches}
+    if pending.character~=self:CharacterKey() or #mismatches>0 then
+        if pending.previousActive and self.db.profiles[pending.previousActive] then self.db.active=pending.previousActive end
+        self.db.pendingSettings=nil;self.db.pendingActionBars=nil
+        self.db.pendingFrameLayouts=nil;self.db.pendingChatLayout=nil
+        self:Print('Profile addon choices did not survive the reload. Saved profiles were kept; settings restore was stopped. Details: /ss log')
+        return false
+    end
+    return true
+end
 function AM:Switch(name)
     if not self:CanStartOperation() then return nil, 'A settings operation is still in progress.' end
     name = trim(name):lower()
@@ -166,16 +198,25 @@ function AM:Switch(name)
     local targetProfile=self.db.profiles[name]
     self.db.pendingActionBarBackup=nil
     if targetProfile.captureSettings and self:SavedActionBars(targetProfile.settings) then
-        local ok,bars=pcall(self.CaptureActionBars,self)
-        if not ok then self:Print(tostring(bars)..'. Nothing changed.');return false end
-        self.db.pendingActionBarBackup=bars
+        if not self.SnapshotMacrosReady or self:SnapshotMacrosReady(self:SavedActionBars(targetProfile.settings)) then
+            local ok,bars=pcall(self.CaptureActionBars,self)
+            if not ok then self:Print(tostring(bars)..'. Nothing changed.');return false end
+            self.db.pendingActionBarBackup=bars
+        end
     end
     local helperName,_,_,helperEnabled=GetAddOnInfo('!SetupSwapLoader')
     if helperName and helperEnabled~=nil and not on(helperEnabled) then EnableAddOn(helperName) end
-    if self.PrepareNativeState then self:PrepareNativeState(self.db.profiles[name]) end
-    for _, change in ipairs(plan.changes) do
-        if change.enabled then EnableAddOn(change.name) else DisableAddOn(change.name) end
+    local prior=self:Snapshot()
+    local mismatches=self:ApplyAddonSelection(plan.target)
+    self.db.lastAddonSwitch={name=name,phase='before reload',mismatches=mismatches}
+    if #mismatches>0 then
+        self:ApplyAddonSelection(prior)
+        self.db.pendingActionBarBackup=nil
+        self:Print('The client did not apply addon choices. No reload was requested; profiles were kept. Details: /ss log')
+        return false
     end
+    if self.PrepareNativeState then self:PrepareNativeState(self.db.profiles[name]) end
+    self.db.pendingAddonSwitch={name=name,target=plan.target,character=self:CharacterKey(),previousActive=self.db.active}
     if self.PrepareSettingsSwitch and not self.skipSettingsOnce then self:PrepareSettingsSwitch(name) end
     self.db.active = name
     local profile=self.db.profiles[name]
@@ -327,6 +368,8 @@ function AM:Initialize()
         profile.addons[self.name]=true
         end
     end
+    if self.CompactSnapshots then self:CompactSnapshots(self.db) end
+    self:CheckPendingAddonSwitch()
     self:RemoveLegacyBindings()
     SLASH_SETUPSWAP1='/setupswap'
     SlashCmdList.SETUPSWAP=function(message) AM:HandleCommand(message) end
