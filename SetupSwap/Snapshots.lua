@@ -49,7 +49,7 @@ function AM:SettingsDeclarations(addon)
     local list,seen={},{}
     local excludedBindings={ConsolePortBindingSet=true,ConsolePortLoaderBinding=true}
     local function add(name,scope)
-        if name~='SetupSwapAccountDB' and name~='SetupSwapDB' and name~='_G' and not excludedBindings[name] and not seen[name] then
+        if name~='SetupSwapAccountDB' and name~='SetupSwapDB' and name~='_G' and name~='QuestieConfigCharacter' and not excludedBindings[name] and not seen[name] then
             seen[name]=true; list[#list+1]={name=name,scope=scope,addon=addon}
         end
     end
@@ -112,7 +112,7 @@ function AM:AceSnapshot(db,budget,variable)
         result.namespaceScopes=result.namespaceScopes or {}
         result.namespaceScopes[name]={}
         for _,scope in ipairs({'char','global','realm','faction','factionrealm'}) do
-            if type(child[scope])=='table' then result.namespaceScopes[name][scope]=self:CopySettings(child[scope],budget) end
+            if type(child[scope])=='table' then result.namespaceScopes[name][scope]=self:CopySettings(self.SettingsScopeView and self:SettingsScopeView(variable,scope,child[scope]) or child[scope],budget) end
         end
     end
     return result
@@ -127,11 +127,13 @@ local function inject(destination,source,variable,path)
             if current.source[key]==nil and not (preserve and preserve[key]) then rawset(current.destination,key,nil) end
         end
         for key,value in pairs(current.source) do
-            if type(value)=='table' then
-                local child=rawget(current.destination,key)
-                if type(child)~='table' then child={};rawset(current.destination,key,child) end
-                pending[#pending+1]={destination=child,source=value,path=current.path=='' and tostring(key) or (current.path..'/'..tostring(key))}
-            else rawset(current.destination,key,value) end
+            if not (preserve and preserve[key]) then
+                if type(value)=='table' then
+                    local child=rawget(current.destination,key)
+                    if type(child)~='table' then child={};rawset(current.destination,key,child) end
+                    pending[#pending+1]={destination=child,source=value,path=current.path=='' and tostring(key) or (current.path..'/'..tostring(key))}
+                else rawset(current.destination,key,value) end
+            end
         end
     end
 end
@@ -178,6 +180,9 @@ function AM:BeginSettingsCapture(name,switchAfter)
         for _,name in ipairs({'TomTomCrazyArrow','TomTomBlock'}) do
             if self:EffectiveState(profile,{name='TomTom'}) then self:SyncTomTomWindowPosition(_G[name],name) end
         end
+    end
+    if self.SyncQuestieWindowPosition then
+        self:SyncQuestieWindowPosition(_G.Questie_BaseFrame)
     end
     local layouts=self.CaptureFrameLayouts and profile and self:CaptureFrameLayouts(profile) or nil
     self.db.lastCapture={name=name,windows=layouts}
@@ -264,14 +269,20 @@ function AM:PrepareRawAceSettings(value,target,current,variable)
         destination.profiles=destination.profiles or {}
         destination.profiles[target]=self:CopySettings(profile)
         for scope,settings in pairs(scopes or {}) do
-            if scope=='global' then
-                local result=self:CopySettings(settings)
-                local preserve=self.PreserveSettingsKeys and self:PreserveSettingsKeys(variable,'global')
-                for key in pairs(preserve or {}) do if destination.global and destination.global[key]~=nil then result[key]=destination.global[key] end end
-                destination.global=result
+            local existing=scope=='global' and destination.global or
+                (keys[scope] and destination[scope] and destination[scope][keys[scope]])
+            local filtered=self.SettingsScopeView and self:SettingsScopeView(variable,scope,settings) or settings
+            local merged=self:CopySettings(filtered)
+            local preserve=self.PreserveSettingsKeys and self:PreserveSettingsKeys(variable,scope)
+            -- Iterate existing keys, since a policy may preserve arbitrary future
+            -- character-state fields rather than enumerating today's quest keys.
+            for key,value in pairs(existing or {}) do
+                if preserve and preserve[key] then merged[key]=value end
+            end
+            if scope=='global' then destination.global=merged
             elseif keys[scope] then
                 destination[scope]=destination[scope] or {}
-                destination[scope][keys[scope]]=self:CopySettings(settings)
+                destination[scope][keys[scope]]=merged
             else error('Native settings scope key unavailable: '..tostring(scope)) end
         end
     end
@@ -402,7 +413,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
             if item.mode~='ace' or db or early then
                 local target=item.restoreProfile or ('SetupSwap-'..tostring(profileName or 'restored'))
                 local rawAce=item.mode=='ace' and not db
-                local value=rawAce and self:PrepareRawAceSettings(item.value,target,_G[item.name],item.name) or self:CopySettings(item.value)
+                local value=rawAce and self:PrepareRawAceSettings(item.value,target,_G[item.name],item.name) or (item.mode~='ace' and self.CopyVariableSettings and self:CopyVariableSettings(item.name,item.value) or self:CopySettings(item.value))
                 assignments[#assignments+1]={name=item.name,value=value,
                     db=db,target=target,rawAce=rawAce}
 
@@ -432,7 +443,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
                     if child then
                         inject(child.profile,values)
                         for scope,scopeValues in pairs((item.value.namespaceScopes or {})[name] or {}) do
-                            if type(child[scope])=='table' then inject(child[scope],scopeValues) end
+                            if type(child[scope])=='table' then inject(child[scope],scopeValues,item.name,scope) end
                         end
                         if child.defaults and type(child.RegisterDefaults)=='function' then child:RegisterDefaults(child.defaults) end
                     end
@@ -445,7 +456,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
                 if not logout then self:ReconnectNativeProfileCache(item.db) end
                 if not logout and not early and item.db.callbacks then item.db.callbacks:Fire('OnProfileChanged',item.db,item.target) end
             elseif type(_G[item.name])=='table' and type(item.value)=='table' then
-                inject(_G[item.name],item.value,item.name)
+                inject(_G[item.name],item.value,item.name,item.rawAce and 'prepared' or nil)
             else _G[item.name]=AM:CopySettings(item.value) end
         end
     end

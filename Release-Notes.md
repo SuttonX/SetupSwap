@@ -1,1 +1,2 @@
-Fixed excessive SetupSwap saved-data size caused by capturing Questie’s compiled database caches. Existing snapshots are cleaned automatically while Questie settings and positions are preserved.
+- Fixed position capture and restore changing window growth anchors, including Questie’s tracker. Resolution and UI-scale handling are preserved, and older CENTER snapshots remain supported.
+- Questie snapshots now save customization without copying character quest tracking, objectives, completion history, or journey data between characters. Existing snapshots are cleaned automatically.

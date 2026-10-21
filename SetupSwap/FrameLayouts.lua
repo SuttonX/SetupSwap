@@ -63,6 +63,52 @@ function AM:SyncTomTomWindowPosition(frame,name)
         rel=relativePoint or point,x=x,y=y}
     if frame.SetUserPlaced then frame:SetUserPlaced(false) end
 end
+-- Coordinates are normalized in UIParent space, but the attachment point is
+-- part of the layout: replacing a corner with CENTER changes resize direction.
+local anchors={TOPLEFT={-0.5,0.5},TOP={0,0.5},TOPRIGHT={0.5,0.5},
+    LEFT={-0.5,0},CENTER={0,0},RIGHT={0.5,0},
+    BOTTOMLEFT={-0.5,-0.5},BOTTOM={0,-0.5},BOTTOMRIGHT={0.5,-0.5}}
+local function growthPoint(frame,name)
+    local questie=name=='Questie_BaseFrame' and _G.Questie
+    local profile=type(questie)=='table' and questie.db and questie.db.profile
+    local point=profile and profile.trackerSetpoint
+    if anchors[point] then return point end
+    point=frame:GetPoint(1)
+    return anchors[point] and point or 'CENTER'
+end
+local function scaleRatio(frame)
+    local ratio=frame.GetEffectiveScale and UIParent.GetEffectiveScale
+        and frame:GetEffectiveScale()/UIParent:GetEffectiveScale() or 1
+    return ratio>0 and ratio or 1
+end
+local function dimensions(frame)
+    local w=frame.GetWidth and frame:GetWidth()
+    local h=frame.GetHeight and frame:GetHeight()
+    if type(w)=='number' and type(h)=='number' and w>0 and h>0 then return w,h end
+end
+local function anchorPosition(frame,point)
+    local cx,cy
+    if frame.GetCenter then cx,cy=frame:GetCenter() end
+    local w,h=dimensions(frame)
+    if type(cx)~='number' or type(cy)~='number' then return end
+    if point~='CENTER' and not w then return end
+    local a=anchors[point]
+    local ratio=scaleRatio(frame)
+    return (cx+(w or 0)*a[1])*ratio,(cy+(h or 0)*a[2])*ratio
+end
+-- Questie reapplies TrackerLocation on profile changes and resizing. Keep its
+-- native corner and our restored position identical, without a Questie patch.
+function AM:SyncQuestieWindowPosition(frame)
+    local questie=_G.Questie
+    local profile=type(questie)=='table' and questie.db and questie.db.profile
+    if type(profile)~='table' or not writable(frame) then return end
+    local point=growthPoint(frame,'Questie_BaseFrame')
+    local x,y=anchorPosition(frame,point)
+    if x and y then
+        local ratio=scaleRatio(frame)
+        profile.TrackerLocation={point,'UIParent','BOTTOMLEFT',x/ratio,y/ratio}
+    end
+end
 function AM:CaptureFrameLayouts(profile)
     local result,seen={},{}
     local coverage={movable=0,protected=0,unnamed=0,captured=0}
@@ -73,15 +119,16 @@ function AM:CaptureFrameLayouts(profile)
     local function capture(frame,name,addon,generic)
         if seen[name] or excluded(name,frame) or not writable(frame) then return end
         local point,relative,relativePoint,x,y=frame:GetPoint(1)
-        local cx,cy
-        if frame.GetCenter then cx,cy=frame:GetCenter() end
-        if cx and cy and frame.GetEffectiveScale and UIParent.GetEffectiveScale then
-            local ratio=frame:GetEffectiveScale()/UIParent:GetEffectiveScale()
-            point,relative,relativePoint,x,y='CENTER',UIParent,'BOTTOMLEFT',cx*ratio,cy*ratio
+        local selected=growthPoint(frame,name)
+        local ax,ay=anchorPosition(frame,selected)
+        local anchorVersion
+        if ax and ay then
+            point,relative,relativePoint,x,y=selected,UIParent,'BOTTOMLEFT',ax,ay
+            anchorVersion=2
         end
         if point and (relative==UIParent or relative==nil) and type(x)=='number' and type(y)=='number' then
             seen[name]=true
-            result[#result+1]={addon=addon,name=name,point=point,relativePoint=relativePoint or point,x=x/width,y=y/height,generic=generic or nil}
+            result[#result+1]={addon=addon,name=name,point=point,relativePoint=relativePoint or point,x=x/width,y=y/height,generic=generic or nil,anchorVersion=anchorVersion}
         end
     end
     for addon,names in pairs(windows) do
@@ -119,14 +166,29 @@ function AM:ApplyFrameLayouts(layouts,profile)
         local frame=allowed and candidate
         if frame and (item.addon=='__ui' or ((not profile or self:EffectiveState(profile,{name=item.addon})) and IsAddOnLoaded(item.addon)))
             and not (frame.IsProtected and frame:IsProtected()) and type(item.x)=='number' and type(item.y)=='number' then
-            frame:ClearAllPoints()
-            local ratio=1
-            if item.relativePoint=='BOTTOMLEFT' and frame.GetEffectiveScale and UIParent.GetEffectiveScale then
-                ratio=frame:GetEffectiveScale()/UIParent:GetEffectiveScale()
+            -- Legacy captures stored only a center, losing the growth point.
+            -- Convert once using the native anchor and current dimensions, keeping
+            -- the same rectangle. Persist the conversion so retries after resizing
+            -- do not move the corner again. Unknown native centers stay centers.
+            if not item.anchorVersion and item.point=='CENTER' and item.relativePoint=='BOTTOMLEFT' then
+                local point=growthPoint(frame,item.name)
+                local w,h=dimensions(frame)
+                if point~='CENTER' and w then
+                    local a=anchors[point]
+                    local ratio=scaleRatio(frame)
+                    item.x=item.x+w*a[1]*ratio/UIParent:GetWidth()
+                    item.y=item.y+h*a[2]*ratio/UIParent:GetHeight()
+                    item.point=point;item.anchorVersion=2
+                end
             end
-            frame:SetPoint(item.point,UIParent,item.relativePoint,item.x*UIParent:GetWidth()/ratio,item.y*UIParent:GetHeight()/ratio)
-            self:SyncTomTomWindowPosition(frame,item.name)
-            count=count+1
+            if anchors[item.point] and anchors[item.relativePoint] then
+                frame:ClearAllPoints()
+                local ratio=item.relativePoint=='BOTTOMLEFT' and scaleRatio(frame) or 1
+                frame:SetPoint(item.point,UIParent,item.relativePoint,item.x*UIParent:GetWidth()/ratio,item.y*UIParent:GetHeight()/ratio)
+                self:SyncTomTomWindowPosition(frame,item.name)
+                if item.name=='Questie_BaseFrame' then self:SyncQuestieWindowPosition(frame) end
+                count=count+1
+            end
         end
     end
     return count

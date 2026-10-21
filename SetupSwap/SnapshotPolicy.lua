@@ -2,19 +2,32 @@ local AM=SetupSwap
 -- Questie's compiled content database belongs to Questie, not to a UI profile.
 local cacheKeys={npcBin=true,npcPtrs=true,questBin=true,questPtrs=true,
     objBin=true,objPtrs=true,itemBin=true,itemPtrs=true,dbIsCompiled=true,dbCompiledVersion=true}
+-- Everything in Questie's character scope is gameplay state unless explicitly
+-- identified as a display preference. Future quest-data fields stay excluded.
+local characterState=setmetatable({}, {__index=function(_,key) return key~='isTrackerExpanded' end})
+local flatState={char=true}
 function AM:PreserveSettingsKeys(variable,path)
-    if variable=='QuestieConfig' and (path=='global' or path=='scopes/global') then return cacheKeys end
+    if variable~='QuestieConfig' then return end
+    if path=='global' or path=='scopes/global' then return cacheKeys end
+    if path=='char' or path=='scopes/char' then return characterState end
+    if path=='' then return flatState end
 end
 function AM:SettingsScopeView(variable,scope,value)
-    if variable~='QuestieConfig' or scope~='global' or type(value)~='table' then return value end
+    if type(value)~='table' then return value end
+    local preserve=self:PreserveSettingsKeys(variable,scope)
+    if not preserve then return value end
     local result={}
-    for key,item in pairs(value) do if not cacheKeys[key] then result[key]=item end end
+    for key,item in pairs(value) do if not preserve[key] then result[key]=item end end
     return result
 end
 function AM:CopyVariableSettings(variable,value,budget)
-    if variable=='QuestieConfig' and type(value)=='table' and type(value.global)=='table' then
-        local view={};for key,item in pairs(value) do view[key]=item end
-        view.global=self:SettingsScopeView(variable,'global',value.global)
+    if variable=='QuestieConfig' and type(value)=='table' then
+        local view={}
+        for key,item in pairs(value) do
+            if key~='char' then
+                view[key]=key=='global' and self:SettingsScopeView(variable,'global',item) or item
+            end
+        end
         return self:CopySettings(view,budget)
     end
     return self:CopySettings(value,budget)
@@ -25,15 +38,27 @@ function AM:CompactSnapshots(db)
     local function compact(snapshot)
         for _,item in ipairs(type(snapshot)=='table' and snapshot.variables or {}) do
             if item.name=='QuestieConfig' and type(item.value)=='table' then
-                local global=item.mode=='ace' and item.value.scopes and item.value.scopes.global or item.value.global
-                if type(global)=='table' then
-                    for key in pairs(cacheKeys) do
-                        local value=global[key]
-                        if value~=nil then
-                            removed=removed+1;if type(value)=='string' then bytes=bytes+#value end
-                            global[key]=nil
+                local function prune(value,preserve)
+                    if type(value)~='table' then return end
+                    for key,valueItem in pairs(value) do
+                        if preserve[key] then
+                            removed=removed+1
+                            if type(valueItem)=='string' then bytes=bytes+#valueItem end
+                            value[key]=nil
                         end
                     end
+                end
+                if item.mode=='ace' then
+                    local scopes=item.value.scopes or {}
+                    prune(scopes.global,cacheKeys)
+                    prune(scopes.char,characterState)
+                    for _,values in pairs(item.value.namespaceScopes or {}) do
+                        prune(values.char,characterState)
+                        prune(values.global,cacheKeys)
+                    end
+                else
+                    prune(item.value.global,cacheKeys)
+                    prune(item.value,flatState)
                 end
             end
         end
