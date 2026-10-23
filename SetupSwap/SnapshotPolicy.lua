@@ -6,11 +6,14 @@ local cacheKeys={npcBin=true,npcPtrs=true,questBin=true,questPtrs=true,
 -- identified as a display preference. Future quest-data fields stay excluded.
 local characterState=setmetatable({}, {__index=function(_,key) return key~='isTrackerExpanded' end})
 local flatState={char=true}
+-- The 3.3.5 port uses this as a live login/reload marker, not a UI option.
+local profileState={isInitialLogin=true}
 function AM:PreserveSettingsKeys(variable,path)
     if variable~='QuestieConfig' then return end
     if path=='global' or path=='scopes/global' then return cacheKeys end
     if path=='char' or path=='scopes/char' then return characterState end
     if path=='' then return flatState end
+    if path=='profile' or path:match('^profiles/[^/]+$') then return profileState end
 end
 function AM:SettingsScopeView(variable,scope,value)
     if type(value)~='table' then return value end
@@ -25,7 +28,11 @@ function AM:CopyVariableSettings(variable,value,budget)
         local view={}
         for key,item in pairs(value) do
             if key~='char' then
-                view[key]=key=='global' and self:SettingsScopeView(variable,'global',item) or item
+                if key=='global' then view[key]=self:SettingsScopeView(variable,'global',item)
+                elseif key=='profiles' and type(item)=='table' then
+                    view.profiles={}
+                    for name,profile in pairs(item) do view.profiles[name]=self:SettingsScopeView(variable,'profile',profile) end
+                else view[key]=item end
             end
         end
         return self:CopySettings(view,budget)
@@ -49,6 +56,7 @@ function AM:CompactSnapshots(db)
                     end
                 end
                 if item.mode=='ace' then
+                    prune(item.value.profile,profileState)
                     local scopes=item.value.scopes or {}
                     prune(scopes.global,cacheKeys)
                     prune(scopes.char,characterState)
@@ -59,6 +67,7 @@ function AM:CompactSnapshots(db)
                 else
                     prune(item.value.global,cacheKeys)
                     prune(item.value,flatState)
+                    for _,profile in pairs(item.value.profiles or {}) do prune(profile,profileState) end
                 end
             end
         end

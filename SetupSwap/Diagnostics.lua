@@ -33,6 +33,13 @@ function AM:DiagnosticsText()
     line('Options window ElvUI skin: '..tostring(self.ui and self.ui.elvUISkinned or false))
     if self.elvUISkinError then line('ElvUI skin error: '..self.elvUISkinError) end
     line('Startup native refresh callbacks: '..tostring(self.db and self.db.lastStartupRefresh or 'none'))
+    if self.db and self.db.lastQuestieStartupRefresh then
+        line('Questie startup refresh: '..tostring(self.db.lastQuestieStartupRefresh))
+    end
+    local deferred=self.questieDeferredRefresh
+    if deferred then
+        line('Questie deferred refresh: attached='..tostring(deferred.attached)..'; scheduled='..deferred.scheduled..'; replayed='..deferred.replayed..'; canceled='..deferred.canceled)
+    end
     line('Startup helper: '..(SetupSwapEarlyLoader and 'loaded' or 'unavailable'))
     line('Observed minimap mask: '..tostring(self.minimapMask or (SetupSwapEarlyLoader and SetupSwapEarlyLoader.minimapMask) or 'not observed'))
     local macroBook=self.db and self.db.macroIdentities

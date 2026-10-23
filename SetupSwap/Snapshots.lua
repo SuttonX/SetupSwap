@@ -103,12 +103,12 @@ function AM:AceDatabase(variable)
     end
 end
 function AM:AceSnapshot(db,budget,variable)
-    local result={profile=self:CopySettings(db.profile,budget),namespaces={},scopes={}}
+    local result={profile=self:CopySettings(self.SettingsScopeView and self:SettingsScopeView(variable,'profile',db.profile) or db.profile,budget),namespaces={},scopes={}}
     for _,scope in ipairs({'char','global','realm','faction','factionrealm'}) do
         if type(db[scope])=='table' then result.scopes[scope]=self:CopySettings(self.SettingsScopeView and self:SettingsScopeView(variable,scope,db[scope]) or db[scope],budget) end
     end
     for name,child in pairs(db.children or {}) do
-        result.namespaces[name]=self:CopySettings(child.profile,budget)
+        result.namespaces[name]=self:CopySettings(self.SettingsScopeView and self:SettingsScopeView(variable,'profile',child.profile) or child.profile,budget)
         result.namespaceScopes=result.namespaceScopes or {}
         result.namespaceScopes[name]={}
         for _,scope in ipairs({'char','global','realm','faction','factionrealm'}) do
@@ -267,7 +267,13 @@ function AM:PrepareRawAceSettings(value,target,current,variable)
     local keys={char=character,realm=realm,faction=faction,factionrealm=faction and (faction..' - '..realm)}
     local function populate(destination,profile,scopes)
         destination.profiles=destination.profiles or {}
-        destination.profiles[target]=self:CopySettings(profile)
+        local active=destination.profileKeys and destination.profileKeys[character]
+        local live=destination.profiles[active or target] or {}
+        local filtered=self.SettingsScopeView and self:SettingsScopeView(variable,'profile',profile) or profile
+        local restored=self:CopySettings(filtered)
+        local preserve=self.PreserveSettingsKeys and self:PreserveSettingsKeys(variable,'profile')
+        for key in pairs(preserve or {}) do restored[key]=live[key] end
+        destination.profiles[target]=restored
         for scope,settings in pairs(scopes or {}) do
             local existing=scope=='global' and destination.global or
                 (keys[scope] and destination[scope] and destination[scope][keys[scope]])
@@ -369,7 +375,13 @@ function AM:RefreshStartupSettings()
     -- Reconnect providers before any consumer's callback can request waypoints.
     for _,item in ipairs(pending) do self:ReconnectNativeProfileCache(item.db) end
     for _,item in ipairs(pending) do
-        if item.db.callbacks and type(item.db.callbacks.Fire)=='function' then
+        if item.initializesAtLogin then
+            -- Questie runs a staged native initialization after PLAYER_LOGIN. Its
+            -- RefreshConfig starts SmoothReset, a second asynchronous quest-log
+            -- rebuild. Settings restored before login are already consumed by
+            -- native initialization; do not start an overlapping rebuild.
+            self.db.lastQuestieStartupRefresh='native initialization (pre-login settings)'
+        elseif item.db.callbacks and type(item.db.callbacks.Fire)=='function' then
             item.db.callbacks:Fire('OnProfileChanged',item.db,item.target)
             count=count+1
         end
@@ -429,19 +441,23 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
     local function apply(logout)
         for _,item in ipairs(assignments) do
             if item.db then
+                local runtime={}
+                local preserve=self.PreserveSettingsKeys and self:PreserveSettingsKeys(item.name,'profile')
+                for key in pairs(preserve or {}) do runtime[key]=item.db.profile[key] end
                 if not logout then
                     if early then selectStartupProfile(item.db,item.target)
                     else item.db:SetProfile(item.target) end
                     self:ReconnectNativeProfileCache(item.db)
                 end
-                inject(item.db.profile,item.value.profile)
+                for key in pairs(preserve or {}) do item.db.profile[key]=runtime[key] end
+                inject(item.db.profile,item.value.profile,item.name,'profile')
                 for scope,values in pairs(item.value.scopes or {}) do
                     if type(item.db[scope])=='table' then inject(item.db[scope],values,item.name,scope) end
                 end
                 for name,values in pairs(item.value.namespaces or {}) do
                     local child=item.db.children and item.db.children[name]
                     if child then
-                        inject(child.profile,values)
+                        inject(child.profile,values,item.name,'profile')
                         for scope,scopeValues in pairs((item.value.namespaceScopes or {})[name] or {}) do
                             if type(child[scope])=='table' then inject(child[scope],scopeValues,item.name,scope) end
                         end
@@ -473,7 +489,7 @@ function AM:ApplySettings(snapshot,makeBackup,profileName,early)
                     local db=pending[#pending];pending[#pending]=nil
                     if not seen[db] then
                         seen[db]=true
-                        self.startupSettingsCallbacks[#self.startupSettingsCallbacks+1]={db=db,target=item.target}
+                        self.startupSettingsCallbacks[#self.startupSettingsCallbacks+1]={db=db,target=item.target,initializesAtLogin=self.preLoginSettingsRestore and item.name=='QuestieConfig' or nil}
                         for _,child in pairs(db.children or {}) do pending[#pending+1]=child end
                     end
                 end

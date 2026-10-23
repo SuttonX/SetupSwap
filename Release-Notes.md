@@ -1,2 +1,1 @@
-- Fixed position capture and restore changing window growth anchors, including Questie’s tracker. Resolution and UI-scale handling are preserved, and older CENTER snapshots remain supported.
-- Questie snapshots now save customization without copying character quest tracking, objectives, completion history, or journey data between characters. Existing snapshots are cleaned automatically.
+Fixed Questie’s tracker occasionally showing newly accepted quests one quest late. Deferred refreshes now preserve updates lost to the tracker’s refresh throttle, without polling.
