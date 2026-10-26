@@ -2,7 +2,7 @@
 
 ![SetupSwap featured artwork](SetupSwap/docs/SetupSwap-featured.png)
 
-**Your addons, your layout, your abilities—ready for the way you want to play.**
+**Your addons, your layout, your abilities, ready for the way you want to play.**
 
 SetupSwap saves reusable setups for **World of Warcraft: Wrath of the Lich King 3.3.5a**.  Each profile can remember which addons are enabled, their captured settings and positions, your chat layout, and the abilities assigned to your action bars.  Switch from the settings window, a slash command, or the minimap button to bring that setup back.
 
@@ -140,10 +140,13 @@ Each profile keeps a separate action-bar snapshot for each character and talent 
 
 Unavailable spells, missing items, deleted or unidentifiable macros, and unsupported actions leave their destination slots unchanged and are reported in `/ss log`.  Managed macros use a recognized stable ownership marker instead of exact dynamic body text. Ordinary macros retain their tracked identity and current contents, including when names are blank. Older captures without tracking information are adopted only by an unambiguous exact match, or can be recaptured once. Spell ranks are matched exactly.  Pet, vehicle, and possession controls are excluded.  Save outside combat and vehicles, with nothing on the cursor.  `/ss undo` includes the action-bar backup for the current character/spec.
 
-## Related projects
+## Other addons by SuttonX
 
-- [ConsolePortLK Enhanced](https://github.com/SuttonX/ConsolePortLK-Enhanced): an improved version of the ConsolePort backport for WotLK 3.3.5a.
-- [FormFreedom](https://github.com/SuttonX/FormFreedom): automatic druid form cancellation for supported actions.
+- [FormFreedom](https://github.com/SuttonX/FormFreedom): Automatic dismounting and shapeshift cancellation for supported actions.
+- [SmartTravel](https://github.com/SuttonX/SmartTravel): One travel button for smart mounts, Druid forms, Ghost Wolf, and Hearthstone.
+- [Classfix](https://github.com/SuttonX/Classfix): Customize class colors across compatible UI frames and addons.
+- [ConsolePortLK Enhanced](https://github.com/SuttonX/ConsolePortLK-Enhanced): Controller UI for WotLK with improved action bars, satellites, and cooldown displays.
+- [Questie TomTom Helper](https://github.com/SuttonX/QuestieAutoTomTom): Automatic Questie objective and turn-in waypoints that respect your manual navigation choices.
 
 These are separate, optional projects and are not bundled with SetupSwap.
 
