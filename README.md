@@ -147,6 +147,7 @@ Unavailable spells, missing items, deleted or unidentifiable macros, and unsuppo
 - [Classfix](https://github.com/SuttonX/Classfix): Customize class colors across compatible UI frames and addons.
 - [ConsolePortLK Enhanced](https://github.com/SuttonX/ConsolePortLK-Enhanced): Controller UI for WotLK with improved action bars, satellites, and cooldown displays.
 - [Questie TomTom Helper](https://github.com/SuttonX/QuestieAutoTomTom): Automatic Questie objective and turn-in waypoints that respect your manual navigation choices.
+- [Locksmith](https://github.com/SuttonX/Locksmith): Modifier-click lockbox unlocking and a compact key and Seaforium selection window for Rogues, Blacksmiths, and Engineers.
 
 These are separate, optional projects and are not bundled with SetupSwap.
 
