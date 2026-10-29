@@ -2,5 +2,5 @@
 ## Title: SetupSwap Startup Helper
 ## Notes: Early startup restoration for SetupSwap profile switches.
 ## Author: SuttonX
-## Version: 1.2.6
+## Version: 1.2.7
 Loader.lua

@@ -1,1 +1,1 @@
-Fixed Questie’s tracker occasionally showing newly accepted quests one quest late. Deferred refreshes now preserve updates lost to the tracker’s refresh throttle, without polling.
+Fixed character-panel equipment slots staying behind when WoW moves the panel to make room for another window. Character-panel contents are now excluded from position capture and restoration, including older saved layouts. No settings reset is required.

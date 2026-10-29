@@ -7,6 +7,10 @@ local function identity()
     return tostring(GetRealmName and GetRealmName() or '')..'/'..tostring(UnitName and UnitName('player') or '')
 end
 local function excluded(name,frame)
+    -- Equipment buttons are draggable item controls, not independent windows.
+    -- Never detach character-panel contents from their native parent anchors.
+    -- Check names as well so legacy snapshots remain excluded before creation.
+    if name and (name:match('^Character.*Slot$') or name=='PaperDollFrame') then return true end
     -- Questie's pooled rows and resize handle are internal layout components,
     -- not independent windows. Reanchoring them to UIParent breaks the tracker.
     if name and (name:find('^linePool') or name=='Questie_Sizer') then return true end
@@ -14,7 +18,10 @@ local function excluded(name,frame)
     local seen={}
     while parent and not seen[parent] do
         seen[parent]=true
-        if parent.GetName and parent:GetName()=='Questie_BaseFrame' then return true end
+        if parent.GetName then
+            local parentName=parent:GetName()
+            if parentName=='Questie_BaseFrame' or parentName=='CharacterFrame' then return true end
+        end
         parent=parent.GetParent and parent:GetParent()
     end
     return not name or name:find('^SetupSwap') or name:find('^ChatFrame%d')
